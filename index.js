@@ -69,7 +69,9 @@
 
   const SPLIT_KEY = 'agent-dashboard.split';
 
-  const OUTCOME_FIELD = 'terminationType';
+  const STATS_FIELD_SETS = [['terminationType', 'handleType'], ['terminationType'], []];
+  const HANDLED_TYPES = /^(normal|sudden_disconnect)$/i;
+  const ABANDONED_TYPE = /^abandoned$/i;
 
   const TYPE_REF = 'name kind ofType { name kind ofType { name kind ofType { name kind } } }';
 
@@ -527,14 +529,14 @@
         from: `${since.getTime()}`, to: `${now}`, timeComparator: 'createdTime',
         filter: {}, aggregations: [{ field: 'id', type: 'count', name: 'total' }],
       };
-      const attempts = this.statsOutcome === undefined ? [OUTCOME_FIELD, ''] : [this.statsOutcome];
+      const attempts = this.statsFields === undefined ? STATS_FIELD_SETS : [this.statsFields];
       let data = null;
-      let outcome = '';
-      for (const field of attempts) {
+      let fields = [];
+      for (const set of attempts) {
         try {
-          data = await this.search(`${STATS_QUERY_HEAD}${field ? ` ${field}` : ''} aggregation{name value}}}}`, variables);
-          outcome = field;
-          this.statsOutcome = field;
+          data = await this.search(`${STATS_QUERY_HEAD}${set.length ? ` ${set.join(' ')}` : ''} aggregation{name value}}}}`, variables);
+          fields = set;
+          this.statsFields = set;
           break;
         } catch (err) {
           if (err.fatal) throw err;
@@ -545,23 +547,31 @@
         this.debug.stats = 'rejected by the API';
         return null;
       }
+      const hasTermination = fields.includes('terminationType');
+      const hasHandle = fields.includes('handleType');
       const stats = new Map();
-      const outcomes = {};
+      const terminations = {};
+      const handles = {};
       for (const row of data.task.tasks || []) {
         const name = (row.lastQueue && row.lastQueue.name) || '';
         if (!name) continue;
         const count = Number((row.aggregation || []).find((a) => a.name === 'total')?.value) || 0;
-        const kind = outcome ? String(row[outcome] || '') : '';
+        const termination = hasTermination ? String(row.terminationType || '') : '';
+        const handle = hasHandle ? String(row.handleType || '') : '';
         const entry = stats.get(name) || { offered: 0, handled: 0, abandoned: 0 };
         entry.offered += count;
-        if (/abandon/i.test(kind)) entry.abandoned += count;
-        else if (/normal/i.test(kind)) entry.handled += count;
+        if (ABANDONED_TYPE.test(termination)) entry.abandoned += count;
+        if (hasHandle ? HANDLED_TYPES.test(handle) : /^normal$/i.test(termination)) entry.handled += count;
         stats.set(name, entry);
-        if (outcome) outcomes[kind || '(blank)'] = (outcomes[kind || '(blank)'] || 0) + count;
+        if (hasTermination) terminations[termination || '(blank)'] = (terminations[termination || '(blank)'] || 0) + count;
+        if (hasHandle) handles[handle || '(blank)'] = (handles[handle || '(blank)'] || 0) + count;
       }
-      this.debug.stats = outcome ? `outcome field "${outcome}"` : 'counts only (no outcome field accepted)';
-      this.debug.outcomesToday = outcomes;
-      return { stats, outcome: Boolean(outcome) };
+      this.debug.stats = fields.length
+        ? `fields accepted: ${fields.join(', ')}${hasHandle ? '' : ' (no handleType, so Handled is approximate)'}`
+        : 'counts only (no outcome fields accepted)';
+      this.debug.terminationTypesToday = terminations;
+      this.debug.handleTypesToday = handles;
+      return { stats, outcome: hasTermination };
     }
 
     async loadQueueCatalog() {

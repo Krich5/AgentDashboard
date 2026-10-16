@@ -103,7 +103,7 @@ In **Control Hub → Contact Center → Desktop Layouts**, upload the layout and
 
 ## Known limitations
 
-- **Offered, Handled and Abandoned count from midnight, local time.** They're tallied from contact records created today. Handled and Abandoned need a contact outcome field from the Search API. If the API doesn't accept one, those columns show N/A. Handled counts contacts that ended normally.
+- **Offered, Handled and Abandoned count from midnight, local time**, using the same definitions as the Analyzer reports. Abandoned counts contacts whose Termination Type is `abandoned`. Handled counts contacts whose Handle Type is `normal` or `sudden_disconnect`. If the Search API doesn't offer Handle Type, Handled falls back to contacts that ended normally and is approximate. Add the `debug` attribute to see which fields were used and today's outcome counts.
 - **No service level or requeued count yet.** Those need a service-level threshold and extra fields.
 - **Signed-out agents aren't shown.** The Search API only lists active sessions.
 - **Only the first page of agents is loaded.** A very large org may not show everyone.
