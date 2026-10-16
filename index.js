@@ -62,6 +62,8 @@
 
   const ALL_QUEUES_QUERY = 'query queues($from:Long! $to:Long! $timeComparator:QueryTimeType $filter:TaskFilters $aggregations:[TaskV2Aggregation]){task(from:$from to:$to timeComparator:$timeComparator filter:$filter aggregations:$aggregations){tasks{lastQueue{name} aggregation{name value}}}}';
 
+  const STATS_QUERY_HEAD = 'query stats($from:Long! $to:Long! $timeComparator:QueryTimeType $filter:TaskFilters $aggregations:[TaskV2Aggregation]){task(from:$from to:$to timeComparator:$timeComparator filter:$filter aggregations:$aggregations){tasks{lastQueue{name}';
+
   const STYLE = `
     :host {
       --bg: #ffffff; --fg: #121212; --muted: #5d6874; --line: #d9dee3;
@@ -93,7 +95,7 @@
               grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
     .q { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
     .q b { display: block; font-size: 13px; margin-bottom: 4px; }
-    .q .row { display: flex; gap: 18px; }
+    .q .row { display: flex; gap: 18px; flex-wrap: wrap; }
     .q .n { font-size: 22px; line-height: 1.1; font-variant-numeric: tabular-nums; }
     .q .l { font-size: 11px; color: var(--muted); }
     .q.hot .n.wait { color: var(--onCall); }
@@ -333,6 +335,51 @@
       return access;
     }
 
+    async discoverTaskFields() {
+      if (this.taskFields !== undefined) return this.taskFields;
+      this.taskFields = null;
+      try {
+        const root = await this.search(`{ __schema { queryType { fields { name type { ${TYPE_REF} } } } } }`, {});
+        const entry = root.__schema.queryType.fields.find((f) => f.name === 'task');
+        const wrapperFields = await this.fieldsOf(this.unwrap(entry.type).name);
+        const tasks = wrapperFields.find((f) => f.name === 'tasks');
+        const fields = await this.fieldsOf(this.unwrap(tasks.type).name);
+        const scalar = (f) => ['SCALAR', 'ENUM'].includes(this.unwrap(f.type).kind);
+        const outcome = fields.find((f) => f.name === 'terminationType' && scalar(f));
+        this.taskFields = { outcome: outcome ? outcome.name : '' };
+        if (this.hasAttribute('debug')) console.info('[agent-dashboard] task outcome field', this.taskFields);
+      } catch (err) {
+        if (this.hasAttribute('debug')) console.info('[agent-dashboard] task schema discovery failed', err);
+      }
+      return this.taskFields;
+    }
+
+    async loadQueueStats() {
+      try {
+        const found = await this.discoverTaskFields();
+        const outcome = found ? found.outcome : '';
+        const since = new Date();
+        since.setHours(0, 0, 0, 0);
+        const data = await this.search(`${STATS_QUERY_HEAD}${outcome ? ` ${outcome}` : ''} aggregation{name value}}}}`, {
+          from: `${since.getTime()}`, to: `${Date.now()}`, timeComparator: 'createdTime',
+          filter: {}, aggregations: [{ field: 'id', type: 'count', name: 'total' }],
+        });
+        const stats = new Map();
+        for (const row of data.task.tasks || []) {
+          const name = (row.lastQueue && row.lastQueue.name) || '';
+          if (!name) continue;
+          const count = Number((row.aggregation || []).find((a) => a.name === 'total')?.value) || 0;
+          const entry = stats.get(name) || { offered: 0, abandoned: 0, hasOutcome: Boolean(outcome) };
+          entry.offered += count;
+          if (outcome && /abandon/i.test(String(row[outcome] || ''))) entry.abandoned += count;
+          stats.set(name, entry);
+        }
+        return { stats, outcome: Boolean(outcome) };
+      } catch (err) {
+        return null;
+      }
+    }
+
     async loadQueueCatalog() {
       const now = Date.now();
       if (this.queueCatalog && now - this.queueCatalogAt < QUEUE_LIST_TTL_MS) return this.queueCatalog;
@@ -391,8 +438,12 @@
         }
         const allowed = access.mode === 'ALL' ? catalog : catalog.filter((q) => access.queueIds.includes(q.id));
         const names = allowed.map((q) => q.name);
+        const result = await this.loadQueueStats();
+        const statsFor = (name) => (result
+          ? result.stats.get(name) || { offered: 0, abandoned: 0, hasOutcome: result.outcome }
+          : null);
         return names
-          .map((name) => ({ name, ...(byName.get(name) || { waiting: 0, oldest: 0 }) }))
+          .map((name) => ({ name, ...(byName.get(name) || { waiting: 0, oldest: 0 }), stats: statsFor(name) }))
           .sort((a, b) => (b.waiting - a.waiting) || a.name.localeCompare(b.name));
       }
 
@@ -410,7 +461,7 @@
           totals.waiting += a.waiting;
           if (a.oldest && (!totals.oldest || a.oldest < totals.oldest)) totals.oldest = a.oldest;
         }
-        return { name, ...totals };
+        return { name, ...totals, stats: null };
       }));
     }
 
@@ -454,7 +505,7 @@
             <div class="card ${k}">
               <div class="name" title="${esc(a.name)}">${esc(a.name)}</div>
               <div class="meta"><span class="reason">${esc(a.reason)}</span><span class="time" data-since="${a.since}">${clock(now - a.since)}</span></div>
-            </div>`).join('') : '<div class="none">Nobody</div>'}</div>
+            </div>`).join('') : '<div class="none">N/A</div>'}</div>
         </div>`).join('');
 
       const notice = this.error
@@ -467,6 +518,8 @@
           <div class="row">
             <div><div class="n">${q.waiting}</div><div class="l">Waiting</div></div>
             <div><div class="n wait time" ${q.waiting ? `data-since="${q.oldest}"` : ''}>${q.waiting ? clock(now - q.oldest) : '--:--'}</div><div class="l">Longest wait</div></div>
+            ${q.stats ? `<div><div class="n">${q.stats.offered}</div><div class="l">Offered today</div></div>` : ''}
+            ${q.stats && q.stats.hasOutcome ? `<div><div class="n">${q.stats.abandoned}</div><div class="l">Abandoned</div></div>` : ''}
           </div>
         </div>`).join('')
         : '<div class="q"><b>Queues</b><div class="row"><div><div class="n">0</div><div class="l">Contacts waiting</div></div></div></div>';

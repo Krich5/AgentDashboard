@@ -13,7 +13,7 @@ A Webex Contact Center Agent Desktop widget that shows who is signed in, what th
 
 Each card has the agent's name and a live clock for time in the current state. Idle cards also show the **idle code** (Lunch, Meeting and so on) when WxCC provides it. The clock is correct as soon as the page loads, because it comes from WxCC's own last-activity time and not from when the page was opened.
 
-Under the board, a strip shows the queues the signed-in agent's **desktop profile** allows them to see (Agent Statistics → Queue statistics in Control Hub: All, None or Specific), with the number **Waiting** and the **Longest wait**. Queues with contacts waiting come first. With "None", no strip is shown. If the profile can't be read, the strip says so and shows no queues.
+Under the board, a strip shows the queues the signed-in agent's **desktop profile** allows them to see (Agent Statistics → Queue statistics in Control Hub: All, None or Specific), with the number **Waiting**, the **Longest wait**, and today's **Offered** and **Abandoned** counts. Queues with contacts waiting come first. With "None", no strip is shown. If the profile can't be read, the strip says so and shows no queues.
 
 ## How it works
 
@@ -96,6 +96,8 @@ In **Control Hub → Contact Center → Desktop Layouts**, upload the layout and
 
 ## Known limitations
 
+- **Offered and Abandoned count from midnight, local time.** They're tallied from contact records created today. Abandoned appears only if the Search API exposes a contact outcome field; otherwise only Offered is shown. Add the `debug` attribute to see in the console whether it was found.
+- **No service level or requeued count yet.** Those need a service-level threshold and extra fields.
 - **Signed-out agents aren't shown.** The Search API only lists active sessions.
 - **Only the first page of agents is loaded.** A very large org may not show everyone.
 - **State names come straight from WxCC.** Anything the widget doesn't recognise is grouped under Idle.
