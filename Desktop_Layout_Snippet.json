@@ -1,0 +1,28 @@
+{
+  "nav": {
+    "label": "Agent Dashboard",
+    "icon": "contact-card",
+    "iconType": "momentum",
+    "navigateTo": "AgentDashboard",
+    "align": "top"
+  },
+  "page": {
+    "id": "AgentDashboard",
+    "widgets": {
+      "comp1": {
+        "comp": "agent-dashboard",
+        "script": "https://krich5.github.io/AgentDashboard/index.js",
+        "attributes": {
+          "token": "$STORE.auth.accessToken",
+          "org-id": "$STORE.agent.orgId",
+          "data-center": "$STORE.app.datacenter",
+          "darkmode": "$STORE.app.darkMode"
+        }
+      }
+    },
+    "layout": {
+      "areas": [["comp1"]],
+      "size": { "cols": [1], "rows": [1] }
+    }
+  }
+}
