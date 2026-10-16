@@ -107,7 +107,7 @@
   class AgentDashboard extends HTMLElement {
     static get observedAttributes() {
       return ['token', 'org-id', 'data-center', 'base-url', 'channel', 'refresh-seconds',
-              'stale-seconds', 'lookback-hours', 'darkmode', 'team-name', 'queues', 'debug'];
+              'stale-seconds', 'lookback-hours', 'darkmode', 'team-name', 'queues', 'agent-profile-id', 'debug'];
     }
 
     constructor() {
@@ -305,6 +305,34 @@
       ];
     }
 
+    async loadAccess() {
+      const profileId = (this.getAttribute('agent-profile-id') || '').trim();
+      if (!profileId) return null;
+      const now = Date.now();
+      if (this.access !== undefined && this.accessFor === profileId && now - this.accessAt < QUEUE_LIST_TTL_MS) return this.access;
+      let access = null;
+      try {
+        const res = await fetch(
+          `${this.base}/organization/${this.orgId}/agent-profile/${profileId}`,
+          { headers: { Authorization: `Bearer ${this.token}`, Accept: 'application/json' } },
+        );
+        if (res.ok) {
+          const body = await res.json();
+          const view = body.viewableStatistics || {};
+          access = {
+            mode: String(view.accessQueueStats || '').toUpperCase(),
+            queueIds: Array.isArray(view.contactServiceQueues) ? view.contactServiceQueues : [],
+          };
+        }
+      } catch (err) {
+        access = null;
+      }
+      this.access = access;
+      this.accessFor = profileId;
+      this.accessAt = access ? now : now - QUEUE_LIST_TTL_MS + 60000;
+      return access;
+    }
+
     async loadQueueCatalog() {
       const now = Date.now();
       if (this.queueCatalog && now - this.queueCatalogAt < QUEUE_LIST_TTL_MS) return this.queueCatalog;
@@ -341,6 +369,10 @@
       const waiting = [{ isActive: { equals: true } }, { status: { equals: 'parked' } }];
 
       if (!pinned.length) {
+        const access = await this.loadAccess();
+        this.queuesUnknown = !access;
+        this.queuesHidden = Boolean(access && access.mode === 'NONE');
+        if (this.queuesHidden || this.queuesUnknown) return [];
         const [catalog, data] = await Promise.all([
           this.loadQueueCatalog(),
           this.search(ALL_QUEUES_QUERY, {
@@ -353,13 +385,19 @@
           const name = (row.lastQueue && row.lastQueue.name) || 'Queue';
           byName.set(name, this.aggregates(row));
         }
-        const names = catalog ? catalog.map((q) => q.name) : [...byName.keys()];
-        for (const name of byName.keys()) if (!names.includes(name)) names.push(name);
+        if (!catalog) {
+          this.queuesUnknown = true;
+          return [];
+        }
+        const allowed = access.mode === 'ALL' ? catalog : catalog.filter((q) => access.queueIds.includes(q.id));
+        const names = allowed.map((q) => q.name);
         return names
           .map((name) => ({ name, ...(byName.get(name) || { waiting: 0, oldest: 0 }) }))
           .sort((a, b) => (b.waiting - a.waiting) || a.name.localeCompare(b.name));
       }
 
+      this.queuesHidden = false;
+      this.queuesUnknown = false;
       return Promise.all(pinned.map(async ({ id, name }) => {
         const data = await this.search(QUEUE_QUERY, {
           from, to, timeComparator: 'createdTime',
@@ -432,7 +470,9 @@
           </div>
         </div>`).join('')
         : '<div class="q"><b>Queues</b><div class="row"><div><div class="n">0</div><div class="l">Contacts waiting</div></div></div></div>';
-      const queues = `<div class="queues">${queueCards}</div>`;
+      let queues = `<div class="queues">${queueCards}</div>`;
+      if (this.queuesHidden) queues = '';
+      else if (this.queuesUnknown) queues = '<div class="queues"><div class="none">Queue access could not be determined. Check the agent-profile-id setting.</div></div>';
 
       this.root.innerHTML = `${notice}<div class="summary">${chips}</div><div class="board">${cols}</div>${queues}`;
     }

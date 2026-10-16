@@ -16,6 +16,7 @@
           "token": "$STORE.auth.accessToken",
           "org-id": "$STORE.agent.orgId",
           "data-center": "$STORE.app.datacenter",
+          "agent-profile-id": "$STORE.agent.agentProfileID",
           "darkmode": "$STORE.app.darkMode"
         }
       }

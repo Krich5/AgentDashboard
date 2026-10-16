@@ -13,7 +13,7 @@ A Webex Contact Center Agent Desktop widget that shows who is signed in, what th
 
 Each card has the agent's name and a live clock for time in the current state. Idle cards also show the **idle code** (Lunch, Meeting and so on) when WxCC provides it. The clock is correct as soon as the page loads, because it comes from WxCC's own last-activity time and not from when the page was opened.
 
-Under the board, a strip shows every queue the signed-in user can access, with the number **Waiting** and the **Longest wait**. Queues with contacts waiting come first. The queue list is read as the user, so it matches what their role allows, and there's nothing to set up. If the user's role can't read the queue list, the strip shows only queues that currently have contacts waiting.
+Under the board, a strip shows the queues the signed-in agent's **desktop profile** allows them to see (Agent Statistics → Queue statistics in Control Hub: All, None or Specific), with the number **Waiting** and the **Longest wait**. Queues with contacts waiting come first. With "None", no strip is shown. If the profile can't be read, the strip says so and shows no queues.
 
 ## How it works
 
@@ -57,6 +57,7 @@ Add a navigation page to the persona that should have it (usually `supervisor` a
           "token": "$STORE.auth.accessToken",
           "org-id": "$STORE.agent.orgId",
           "data-center": "$STORE.app.datacenter",
+          "agent-profile-id": "$STORE.agent.agentProfileID",
           "darkmode": "$STORE.app.darkMode"
         }
       }
@@ -81,6 +82,7 @@ In **Control Hub → Contact Center → Desktop Layouts**, upload the layout and
 |-----------|----------|-------------|
 | `token` | Yes | The user's access token, `$STORE.auth.accessToken` |
 | `org-id` | Yes | WxCC organization ID, `$STORE.agent.orgId` |
+| `agent-profile-id` | Yes, for queues | The agent's desktop profile ID, `$STORE.agent.agentProfileID`. The widget reads the profile to see which queues the agent may view |
 | `data-center` | Yes | `us1`, `eu1`, `eu2`, `anz1` or `ca1`, from `$STORE.app.datacenter` |
 | `darkmode` | No | `$STORE.app.darkMode`. Matches the Desktop's light or dark theme |
 | `base-url` | No | Use this API address instead of the one built from `data-center` |
@@ -90,7 +92,7 @@ In **Control Hub → Contact Center → Desktop Layouts**, upload the layout and
 | `lookback-hours` | No | How far back to search for active sessions and waiting contacts. Default `24` |
 | `debug` | No | Logs to the browser console which idle-code fields the Search API offered |
 | `team-name` | No | Show only this team, by its exact name. If left out, it shows everyone the user is allowed to see. |
-| `queues` | No | Pin specific queues so they always show, even with nothing waiting, as `id:Name` pairs separated by commas, e.g. `"<queue-id>:Technical Support,<queue-id>:Billing"`. If left out, all queues the user can access are shown. |
+| `queues` | No | Pin specific queues so they always show, even with nothing waiting, as `id:Name` pairs separated by commas, e.g. `"<queue-id>:Technical Support,<queue-id>:Billing"`. If left out, the queues allowed by the agent's desktop profile are shown. |
 
 ## Known limitations
 
