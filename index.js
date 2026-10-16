@@ -725,7 +725,7 @@
       const oldest = this.queueStats.filter((q) => q.waiting).reduce((m, q) => (m && m < q.oldest ? m : q.oldest), 0);
       const totals = this.queueStats.length > 1 ? `<tfoot><tr>
           <td class="qn">Total</td>
-          <td>${this.queueStats.reduce((n, q) => n + q.waiting, 0)}</td>
+          <td><span class="pill">${this.queueStats.reduce((n, q) => n + q.waiting, 0)}</span></td>
           <td>${waitCell(oldest)}</td>
           <td>${cell(sum('offered'), known)}</td>
           <td>${cell(sum('handled'), outcomeKnown)}</td>
