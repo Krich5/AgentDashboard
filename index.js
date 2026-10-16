@@ -5,8 +5,8 @@
     dataCenter: 'us1',
     channel: 'telephony',
     refreshSeconds: 15,
-    visibleRows: 5,
-    queueRows: 15,
+    visibleRows: 15,
+    queueRows: 5,
     waitingWarn: 5,
     waitingAlert: 10,
     waitWarnSeconds: 120,
@@ -67,6 +67,8 @@
 
   const AGENT_QUERY_HEAD = 'query agents($from:Long! $to:Long! $filter:AgentSessionFilters $extFilter:AgentSessionSpecificFilters $pagination:Pagination){agentSession(from:$from to:$to filter:$filter extFilter:$extFilter pagination:$pagination){agentSessions{';
 
+  const SPLIT_KEY = 'agent-dashboard.split';
+
   const OUTCOME_FIELD = 'terminationType';
 
   const TYPE_REF = 'name kind ofType { name kind ofType { name kind ofType { name kind } } }';
@@ -107,7 +109,16 @@
     .onCall    { border-left-color: var(--onCall); }    .chip.onCall i    { background: var(--onCall); }
     .wrapup    { border-left-color: var(--wrapup); }    .chip.wrapup i    { background: var(--wrapup); }
     .idle      { border-left-color: var(--idle); }      .chip.idle i      { background: var(--idle); }
-    .queues { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+    .queues { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+    .splitter { flex: none; position: relative; height: 14px; margin: 4px 0; cursor: row-resize; touch-action: none; }
+    .splitter::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid var(--line); }
+    .splitter::after { content: ''; position: absolute; left: 50%; top: 50%; width: 36px; height: 4px; margin: -2px 0 0 -18px; border-radius: 2px; background: var(--line); }
+    .splitter:hover::after, .splitter:focus-visible::after { background: var(--muted); }
+    .splitter:focus-visible { outline: none; }
+    .wrap.custom .board { flex: var(--split) 1 0px; }
+    .wrap.custom .list { flex: 1 1 0px; max-height: none; }
+    .wrap.custom .queues { flex: var(--rest) 1 0px; }
+    .wrap.custom .tablewrap { flex: 1 1 0px; max-height: none; min-height: calc(3 * var(--qrow)); }
     :host { --qrows: 6; --qrow: 34px; }
     .tablewrap { flex: 0 1 auto; min-height: calc(4 * var(--qrow)); overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
                  max-height: calc((var(--qrows) + 2) * var(--qrow)); }
@@ -143,6 +154,10 @@
       this.attachShadow({ mode: 'open' });
       this.shadowRoot.innerHTML = `<style>${STYLE}</style><div class="wrap"></div>`;
       this.root = this.shadowRoot.querySelector('.wrap');
+      this.split = this.loadSplit();
+      this.root.addEventListener('pointerdown', (e) => this.startDrag(e));
+      this.root.addEventListener('dblclick', (e) => { if (e.target.closest && e.target.closest('.splitter')) this.resetSplit(); });
+      this.root.addEventListener('keydown', (e) => this.nudgeSplit(e));
       this.agents = [];
       this.queueStats = [];
       this.debug = {};
@@ -151,6 +166,7 @@
     }
 
     connectedCallback() {
+      this.applySplit();
       this.onResize = () => this.fit();
       window.addEventListener('resize', this.onResize);
       this.fit();
@@ -170,6 +186,83 @@
       if (!this.isConnected) return;
       if (name === 'refresh-seconds') this.startPolling();
       else if (name !== 'darkmode') this.refresh();
+    }
+
+    loadSplit() {
+      try {
+        const value = Number(window.localStorage.getItem(SPLIT_KEY));
+        return value >= 0.1 && value <= 0.9 ? value : null;
+      } catch (err) {
+        return null;
+      }
+    }
+
+    saveSplit() {
+      try {
+        if (this.split === null) window.localStorage.removeItem(SPLIT_KEY);
+        else window.localStorage.setItem(SPLIT_KEY, String(this.split));
+      } catch (err) {
+        return;
+      }
+    }
+
+    applySplit() {
+      this.root.classList.toggle('custom', this.split !== null);
+      if (this.split !== null) {
+        this.style.setProperty('--split', String(this.split));
+        this.style.setProperty('--rest', String(1 - this.split));
+      }
+    }
+
+    resetSplit() {
+      this.split = null;
+      this.saveSplit();
+      this.applySplit();
+    }
+
+    nudgeSplit(e) {
+      if (!e.target.closest || !e.target.closest('.splitter')) return;
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+      e.preventDefault();
+      const base = this.split === null ? 0.5 : this.split;
+      this.split = Math.min(0.9, Math.max(0.1, base + (e.key === 'ArrowUp' ? -0.03 : 0.03)));
+      this.applySplit();
+      this.saveSplit();
+    }
+
+    startDrag(e) {
+      const handle = e.target.closest && e.target.closest('.splitter');
+      const board = this.shadowRoot.querySelector('.board');
+      const queues = this.shadowRoot.querySelector('.queues');
+      if (!handle || !board || !queues) return;
+      e.preventDefault();
+      if (this.split === null) {
+        const boardHeight = board.getBoundingClientRect().height;
+        const queuesHeight = queues.getBoundingClientRect().height;
+        this.split = Math.min(0.9, Math.max(0.1, boardHeight / ((boardHeight + queuesHeight) || 1)));
+        this.applySplit();
+      }
+      const grip = handle.getBoundingClientRect().height;
+      const top = board.getBoundingClientRect().top;
+      const total = queues.getBoundingClientRect().bottom - top - grip;
+      this.dragging = true;
+      const lowest = Math.min(0.45, (3 * 34) / total);
+      const highest = 1 - Math.min(0.45, (4 * 34) / total);
+      const move = (ev) => {
+        this.split = Math.min(highest, Math.max(lowest, (ev.clientY - top - grip / 2) / total));
+        this.applySplit();
+      };
+      const stop = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', stop);
+        window.removeEventListener('pointercancel', stop);
+        this.dragging = false;
+        this.saveSplit();
+        this.render();
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', stop);
+      window.addEventListener('pointercancel', stop);
     }
 
     fit() {
@@ -577,6 +670,7 @@
     }
 
     render() {
+      if (this.dragging) return;
       const now = Date.now();
       if (this.error && !this.lastGood) {
         this.root.innerHTML = `<div class="notice bad">${esc(this.error)}</div>`;
@@ -645,13 +739,14 @@
       let queues = `<div class="queues">${table}</div>`;
       if (this.queuesHidden) queues = '';
       else if (this.queuesUnknown) queues = '<div class="queues"><div class="none">Queue access could not be determined. Check the agent-profile-id setting.</div></div>';
+      const splitter = queues ? '<div class="splitter" role="separator" aria-orientation="horizontal" aria-label="Resize agents and queues" tabindex="0" title="Drag to resize. Double-click to reset."></div>' : '';
       const debug = this.hasAttribute('debug')
         ? `<details class="debug" open><summary>Debug</summary><pre>${esc(JSON.stringify(this.debug, null, 2))}</pre></details>` : '';
 
       this.style.setProperty('--rows', String(Math.floor(positive(this.getAttribute('rows'), DEFAULTS.visibleRows))));
       this.style.setProperty('--qrows', String(Math.floor(positive(this.getAttribute('queue-rows'), DEFAULTS.queueRows))));
       const scrolled = [...this.shadowRoot.querySelectorAll('.list, .tablewrap')].map((el) => el.scrollTop);
-      this.root.innerHTML = `${notice}<div class="summary">${chips}</div><div class="board">${cols}</div>${queues}${debug}`;
+      this.root.innerHTML = `${notice}<div class="summary">${chips}</div><div class="board">${cols}</div>${splitter}${queues}${debug}`;
       this.fit();
       this.shadowRoot.querySelectorAll('.list, .tablewrap').forEach((el, i) => { if (scrolled[i]) el.scrollTop = scrolled[i]; });
     }

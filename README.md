@@ -11,9 +11,11 @@ A Webex Contact Center Agent Desktop widget that shows who is signed in, what th
 | **Wrap-up** | Finishing up after a call |
 | **Idle** | Signed in but not taking calls, with the idle code shown on the card |
 
-Each agent is one compact row. Each column shows five rows at a time and scrolls when there are more. Available and Wrap-up rows show the name and a live clock for time in that state. On a call rows add the call state (connected, hold, conference and so on) between the name and the clock. Idle rows add the idle code (Lunch, Meeting and so on) when WxCC provides it.
+Each agent is one compact row. Each column shows up to fifteen rows at a time and scrolls when there are more. Available and Wrap-up rows show the name and a live clock for time in that state. On a call rows add the call state (connected, hold, conference and so on) between the name and the clock. Idle rows add the idle code (Lunch, Meeting and so on) when WxCC provides it.
 
 Under the board, a table lists the queues the signed-in agent's **desktop profile** allows them to see (Agent Statistics → Queue statistics in Control Hub: All, None or Specific). Each queue has its **Waiting** count, **Longest wait**, and today's **Offered**, **Handled** and **Abandoned** counts, with a total row that stays visible while the queues scroll. Queues with contacts waiting come first. **Waiting** and **Longest wait** turn yellow and then red as they pass the thresholds (see the attributes below), and the other columns stay plain. The whole widget sizes itself to the window, sharing the height between the agent columns and the table, so the page doesn't scroll. With "None", no table is shown. If the profile can't be read, it says so and shows no queues.
+
+**Resizing.** Drag the divider between the agents and the queue table to give one more room. Your position is remembered in the browser, so it's the same next time you sign in on that computer. Double-click the divider to put it back to the default, or focus it and use the up and down arrow keys.
 
 ## How it works
 
@@ -88,8 +90,8 @@ In **Control Hub → Contact Center → Desktop Layouts**, upload the layout and
 | `base-url` | No | Use this API address instead of the one built from `data-center` |
 | `channel` | No | The channel to list agents on. Default `telephony` |
 | `refresh-seconds` | No | How often data is fetched. Default `15` |
-| `rows` | No | How many agent rows each column shows before it scrolls. Default `5` |
-| `queue-rows` | No | The most queue rows the table shows before it scrolls. The header and Total row stay in place. Default `15` |
+| `rows` | No | How many agent rows each column shows before it scrolls. Default `15` |
+| `queue-rows` | No | The most queue rows the table shows before it scrolls. The header and Total row stay in place. Default `5` |
 | `waiting-warn` / `waiting-alert` | No | A queue's Waiting count turns yellow at `waiting-warn` and red at `waiting-alert`. Defaults `5` and `10` |
 | `wait-warn-seconds` / `wait-alert-seconds` | No | Longest wait turns yellow at `wait-warn-seconds` and red at `wait-alert-seconds`. Defaults `120` and `300` |
 | `fit` | No | By default the widget sizes itself to the browser window so the page never scrolls. Set `false` to turn that off |
