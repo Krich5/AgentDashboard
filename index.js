@@ -706,7 +706,7 @@
       const cell = (value, ok) => (ok ? value : 'N/A');
       const waitCell = (since) => (since
         ? `<span class="pill time ${this.levelOf((now - since) / 1000, this.waitLevels)}" data-since="${since}" data-kind="wait">${clock(now - since)}</span>`
-        : '<span class="pill">--:--</span>');
+        : '<span class="pill">00:00</span>');
       const rows = this.queueStats.map((q) => {
         const st = q.stats;
         const outcome = Boolean(st && st.hasOutcome);
