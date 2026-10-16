@@ -54,7 +54,9 @@
     }).filter((q) => q.id);
   }
 
-  const AGENT_QUERY = 'query agents($from:Long! $to:Long! $filter:AgentSessionFilters $extFilter:AgentSessionSpecificFilters $pagination:Pagination){agentSession(from:$from to:$to filter:$filter extFilter:$extFilter pagination:$pagination){agentSessions{agentId agentName teamName startTime channelInfo{currentState lastActivityTime}}}}';
+  const AGENT_QUERY_HEAD = 'query agents($from:Long! $to:Long! $filter:AgentSessionFilters $extFilter:AgentSessionSpecificFilters $pagination:Pagination){agentSession(from:$from to:$to filter:$filter extFilter:$extFilter pagination:$pagination){agentSessions{';
+
+  const TYPE_REF = 'name kind ofType { name kind ofType { name kind ofType { name kind } } }';
 
   const QUEUE_QUERY = 'query queue($from:Long! $to:Long! $timeComparator:QueryTimeType $filter:TaskFilters $aggregations:[TaskV2Aggregation]){task(from:$from to:$to timeComparator:$timeComparator filter:$filter aggregations:$aggregations){tasks{aggregation{name value}}}}';
 
@@ -81,6 +83,7 @@
     .name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 2px; }
     .time { font-variant-numeric: tabular-nums; }
+    .reason { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px; }
     .none { font-size: 12px; color: var(--muted); padding: 4px 2px; }
     .available { border-left-color: var(--available); } .chip.available i { background: var(--available); }
     .onCall    { border-left-color: var(--onCall); }    .chip.onCall i    { background: var(--onCall); }
@@ -104,7 +107,7 @@
   class AgentDashboard extends HTMLElement {
     static get observedAttributes() {
       return ['token', 'org-id', 'data-center', 'base-url', 'channel', 'refresh-seconds',
-              'stale-seconds', 'lookback-hours', 'darkmode', 'team-name', 'queues'];
+              'stale-seconds', 'lookback-hours', 'darkmode', 'team-name', 'queues', 'debug'];
     }
 
     constructor() {
@@ -180,20 +183,109 @@
       return body.data;
     }
 
+    unwrap(type) {
+      let t = type;
+      while (t && (t.kind === 'LIST' || t.kind === 'NON_NULL') && t.ofType) t = t.ofType;
+      return t || {};
+    }
+
+    async fieldsOf(typeName) {
+      const data = await this.search(`{ __type(name: "${typeName}") { fields { name type { ${TYPE_REF} } } } }`, {});
+      return (data.__type && data.__type.fields) || [];
+    }
+
+    async discoverIdleFields() {
+      if (this.idleFields !== undefined) return this.idleFields;
+      this.idleFields = null;
+      try {
+        const root = await this.search(`{ __schema { queryType { fields { name type { ${TYPE_REF} } } } } }`, {});
+        const entry = root.__schema.queryType.fields.find((f) => f.name === 'agentSession');
+        const wrapperFields = await this.fieldsOf(this.unwrap(entry.type).name);
+        const sessions = wrapperFields.find((f) => f.name === 'agentSessions');
+        const sessionFields = await this.fieldsOf(this.unwrap(sessions.type).name);
+        const channel = sessionFields.find((f) => f.name === 'channelInfo');
+        const channelFields = channel ? await this.fieldsOf(this.unwrap(channel.type).name) : [];
+        const pick = (fields) => fields
+          .filter((f) => ['SCALAR', 'ENUM'].includes(this.unwrap(f.type).kind))
+          .map((f) => f.name)
+          .filter((n) => /idle/i.test(n));
+        const found = { session: pick(sessionFields), channel: pick(channelFields) };
+        if (found.session.length || found.channel.length) this.idleFields = found;
+        if (this.hasAttribute('debug')) console.info('[agent-dashboard] idle fields', found);
+      } catch (err) {
+        if (this.hasAttribute('debug')) console.info('[agent-dashboard] schema discovery failed', err);
+      }
+      return this.idleFields;
+    }
+
+    agentQuery(extra) {
+      const top = ['agentId', 'agentName', 'teamName', 'startTime', ...(extra ? extra.session : [])].join(' ');
+      const channel = ['currentState', 'lastActivityTime', ...(extra ? extra.channel : [])].join(' ');
+      return `${AGENT_QUERY_HEAD}${top} channelInfo{${channel}}}}}`;
+    }
+
+    async loadIdleCodeNames() {
+      const now = Date.now();
+      if (this.idleCodeNames && now - this.idleCodeNamesAt < QUEUE_LIST_TTL_MS) return this.idleCodeNames;
+      const names = {};
+      try {
+        const filter = encodeURIComponent('active==true;workTypeCode==IDLE_CODE');
+        const res = await fetch(
+          `${this.base}/organization/${this.orgId}/v2/auxiliary-code?page=0&pageSize=100&filter=${filter}`,
+          { headers: { Authorization: `Bearer ${this.token}`, Accept: 'application/json' } },
+        );
+        if (res.ok) {
+          const body = await res.json();
+          const rows = Array.isArray(body) ? body : (body.data || []);
+          for (const c of rows) if (c && c.id && c.name) names[c.id] = c.name;
+        }
+      } catch (err) {
+        return {};
+      }
+      this.idleCodeNames = names;
+      this.idleCodeNamesAt = now;
+      return names;
+    }
+
+    reasonFrom(session, channel, extra, codeNames) {
+      if (!extra) return '';
+      const values = [
+        ...extra.channel.map((n) => [n, channel[n]]),
+        ...extra.session.map((n) => [n, session[n]]),
+      ].filter(([, v]) => v);
+      const named = values.find(([n]) => /name/i.test(n));
+      if (named) return String(named[1]);
+      const id = values.length ? String(values[0][1]) : '';
+      return codeNames[id] || '';
+    }
+
     async loadAgents() {
       const now = Date.now();
-      const data = await this.search(AGENT_QUERY, {
+      const variables = {
         from: `${now - this.lookbackMs}`, to: `${now}`,
         filter: { and: [{ isActive: { equals: true } }, { channelInfo: { channelType: { equals: this.channel } } }] },
         extFilter: {}, pagination: {},
-      });
+      };
+      let extra = await this.discoverIdleFields();
+      let data;
+      try {
+        data = await this.search(this.agentQuery(extra), variables);
+      } catch (err) {
+        if (!extra) throw err;
+        this.idleFields = null;
+        extra = null;
+        data = await this.search(this.agentQuery(null), variables);
+      }
+      const codeNames = extra ? await this.loadIdleCodeNames() : {};
       const team = (this.getAttribute('team-name') || '').trim().toLowerCase();
       return (data.agentSession.agentSessions || [])
         .map((s) => {
           const ch = (s.channelInfo && s.channelInfo[0]) || {};
+          const group = groupFor(ch.currentState);
           return {
             id: s.agentId, name: s.agentName || 'Unknown', team: s.teamName || '',
-            state: ch.currentState || '', group: groupFor(ch.currentState),
+            state: ch.currentState || '', group,
+            reason: group === 'idle' ? this.reasonFrom(s, ch, extra, codeNames) : '',
             since: Number(ch.lastActivityTime) || Number(s.startTime) || now,
           };
         })
@@ -323,7 +415,7 @@
           <div class="list">${byGroup[k].length ? byGroup[k].map((a) => `
             <div class="card ${k}">
               <div class="name" title="${esc(a.name)}">${esc(a.name)}</div>
-              <div class="meta"><span>${esc(a.team)}</span><span class="time" data-since="${a.since}">${clock(now - a.since)}</span></div>
+              <div class="meta"><span class="reason">${esc(a.reason)}</span><span class="time" data-since="${a.since}">${clock(now - a.since)}</span></div>
             </div>`).join('') : '<div class="none">Nobody</div>'}</div>
         </div>`).join('');
 

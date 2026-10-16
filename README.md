@@ -9,9 +9,9 @@ A Webex Contact Center Agent Desktop widget that shows who is signed in, what th
 | **Available** | Ready for the next call. Sorted with the longest-waiting agent first, so the top card is who's next. |
 | **On a call** | Ringing, connected, on hold, consulting or in a conference |
 | **Wrap-up** | Finishing up after a call |
-| **Idle** | Signed in but not taking calls, including any idle or break state |
+| **Idle** | Signed in but not taking calls, with the idle code shown on the card |
 
-Each card has the agent's name, their team, and a live clock for time in the current state. The clock is correct as soon as the page loads, because it comes from WxCC's own last-activity time and not from when the page was opened.
+Each card has the agent's name and a live clock for time in the current state. Idle cards also show the **idle code** (Lunch, Meeting and so on) when WxCC provides it. The clock is correct as soon as the page loads, because it comes from WxCC's own last-activity time and not from when the page was opened.
 
 Under the board, a strip shows every queue the signed-in user can access, with the number **Waiting** and the **Longest wait**. Queues with contacts waiting come first. The queue list is read as the user, so it matches what their role allows, and there's nothing to set up. If the user's role can't read the queue list, the strip shows only queues that currently have contacts waiting.
 
@@ -88,6 +88,7 @@ In **Control Hub → Contact Center → Desktop Layouts**, upload the layout and
 | `refresh-seconds` | No | How often data is fetched. Default `15` |
 | `stale-seconds` | No | How long before the board warns the data is old. Default `60` |
 | `lookback-hours` | No | How far back to search for active sessions and waiting contacts. Default `24` |
+| `debug` | No | Logs to the browser console which idle-code fields the Search API offered |
 | `team-name` | No | Show only this team, by its exact name. If left out, it shows everyone the user is allowed to see. |
 | `queues` | No | Pin specific queues so they always show, even with nothing waiting, as `id:Name` pairs separated by commas, e.g. `"<queue-id>:Technical Support,<queue-id>:Billing"`. If left out, all queues the user can access are shown. |
 
@@ -95,7 +96,8 @@ In **Control Hub → Contact Center → Desktop Layouts**, upload the layout and
 
 - **Signed-out agents aren't shown.** The Search API only lists active sessions.
 - **Only the first page of agents is loaded.** A very large org may not show everyone.
-- **State names come straight from WxCC.** Anything the widget doesn't recognise is grouped under Idle. The idle or break reason (Lunch, Meeting, and so on) isn't shown yet.
+- **State names come straight from WxCC.** Anything the widget doesn't recognise is grouped under Idle.
+- **Idle codes depend on what the Search API offers.** The widget asks the API which idle-code fields exist the first time it loads. If the API offers none, Idle cards show no reason. Add the `debug` attribute to see in the browser console which fields were found.
 - **No extension numbers yet.**
 
 ## License
