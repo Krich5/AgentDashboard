@@ -143,22 +143,30 @@
     get refreshMs() { return positive(this.getAttribute('refresh-seconds'), DEFAULTS.refreshSeconds) * 1000; }
     get staleMs() { return positive(this.getAttribute('stale-seconds'), DEFAULTS.staleSeconds) * 1000; }
     get lookbackMs() { return positive(this.getAttribute('lookback-hours'), DEFAULTS.lookbackHours) * 3600000; }
+    get dataCenter() {
+      const raw = String(this.getAttribute('data-center') || '').toLowerCase();
+      const match = raw.match(/(?:anz|us|eu|ca|uk|jp|sg)\d+/);
+      return match ? match[0] : DEFAULTS.dataCenter;
+    }
     get base() {
       const explicit = (this.getAttribute('base-url') || '').trim().replace(/\/+$/, '');
-      if (explicit) return explicit;
-      const dc = this.getAttribute('data-center') || DEFAULTS.dataCenter;
-      return `https://api.wxcc-${dc}.cisco.com`;
+      return explicit || `https://api.wxcc-${this.dataCenter}.cisco.com`;
     }
 
     async search(query, variables) {
-      const res = await fetch(`${this.base}/search`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json', Accept: 'application/json',
-          Authorization: `Bearer ${this.token}`,
-        },
-        body: JSON.stringify({ query, variables }),
-      });
+      let res;
+      try {
+        res = await fetch(`${this.base}/search`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json', Accept: 'application/json',
+            Authorization: `Bearer ${this.token}`,
+          },
+          body: JSON.stringify({ query, variables }),
+        });
+      } catch (err) {
+        throw new Error(`Could not reach ${this.base} (data-center "${this.getAttribute('data-center') || ''}").`);
+      }
       if (res.status === 401 || res.status === 403) {
         throw new Error('Your session does not allow this view, or it has expired. Sign in again.');
       }
