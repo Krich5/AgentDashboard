@@ -13,7 +13,7 @@ A Webex Contact Center Agent Desktop widget that shows who is signed in, what th
 
 Each card has the agent's name, their team, and a live clock for time in the current state. The clock is correct as soon as the page loads, because it comes from WxCC's own last-activity time and not from when the page was opened.
 
-If you list queues, a strip under the board shows **Waiting** and **Longest wait** for each.
+Under the board, a strip shows every queue that currently has contacts waiting, with the number **Waiting** and the **Longest wait**. Queues are found automatically, so there's nothing to set up. If nothing is waiting, it shows 0.
 
 ## How it works
 
@@ -89,7 +89,7 @@ In **Control Hub → Contact Center → Desktop Layouts**, upload the layout and
 | `stale-seconds` | No | How long before the board warns the data is old. Default `60` |
 | `lookback-hours` | No | How far back to search for active sessions and waiting contacts. Default `24` |
 | `team-name` | No | Show only this team, by its exact name. If left out, it shows everyone the user is allowed to see. |
-| `queues` | No | Queues to show waiting numbers for, as `id:Name` pairs separated by commas, e.g. `"<queue-id>:Technical Support,<queue-id>:Billing"` |
+| `queues` | No | Pin specific queues so they always show, even with nothing waiting, as `id:Name` pairs separated by commas, e.g. `"<queue-id>:Technical Support,<queue-id>:Billing"`. If left out, queues with waiting contacts are found automatically. |
 
 ## Known limitations
 

@@ -56,6 +56,8 @@
 
   const QUEUE_QUERY = 'query queue($from:Long! $to:Long! $timeComparator:QueryTimeType $filter:TaskFilters $aggregations:[TaskV2Aggregation]){task(from:$from to:$to timeComparator:$timeComparator filter:$filter aggregations:$aggregations){tasks{aggregation{name value}}}}';
 
+  const ALL_QUEUES_QUERY = 'query queues($from:Long! $to:Long! $timeComparator:QueryTimeType $filter:TaskFilters $aggregations:[TaskV2Aggregation]){task(from:$from to:$to timeComparator:$timeComparator filter:$filter aggregations:$aggregations){tasks{lastQueue{name} aggregation{name value}}}}';
+
   const STYLE = `
     :host {
       --bg: #ffffff; --fg: #121212; --muted: #5d6874; --line: #d9dee3;
@@ -196,26 +198,50 @@
         .filter((a) => !team || a.team.toLowerCase() === team);
     }
 
+    aggregates(row) {
+      const agg = {};
+      for (const a of row.aggregation || []) agg[a.name] = a.value;
+      return { waiting: Number(agg.waiting) || 0, oldest: Number(agg.oldest) || 0 };
+    }
+
+    waitingAggregations() {
+      return [
+        { field: 'id', type: 'count', name: 'waiting' },
+        { field: 'createdTime', type: 'min', name: 'oldest' },
+      ];
+    }
+
     async loadQueues() {
-      const queues = parseQueues(this.getAttribute('queues'));
+      const pinned = parseQueues(this.getAttribute('queues'));
       const now = Date.now();
-      return Promise.all(queues.map(async ({ id, name }) => {
-        const data = await this.search(QUEUE_QUERY, {
-          from: `${now - this.lookbackMs}`, to: `${now}`, timeComparator: 'createdTime',
-          filter: { and: [
-            { isActive: { equals: true } }, { status: { equals: 'parked' } },
-            { lastQueue: { id: { equals: id } } },
-          ] },
-          aggregations: [
-            { field: 'id', type: 'count', name: 'waiting' },
-            { field: 'createdTime', type: 'min', name: 'oldest' },
-          ],
+      const from = `${now - this.lookbackMs}`;
+      const to = `${now}`;
+      const waiting = [{ isActive: { equals: true } }, { status: { equals: 'parked' } }];
+
+      if (!pinned.length) {
+        const data = await this.search(ALL_QUEUES_QUERY, {
+          from, to, timeComparator: 'createdTime',
+          filter: { and: waiting }, aggregations: this.waitingAggregations(),
         });
-        const agg = {};
+        return (data.task.tasks || [])
+          .map((row) => ({ name: (row.lastQueue && row.lastQueue.name) || 'Queue', ...this.aggregates(row) }))
+          .filter((q) => q.waiting > 0)
+          .sort((a, b) => a.oldest - b.oldest);
+      }
+
+      return Promise.all(pinned.map(async ({ id, name }) => {
+        const data = await this.search(QUEUE_QUERY, {
+          from, to, timeComparator: 'createdTime',
+          filter: { and: [...waiting, { lastQueue: { id: { equals: id } } }] },
+          aggregations: this.waitingAggregations(),
+        });
+        const totals = { waiting: 0, oldest: 0 };
         for (const row of data.task.tasks || []) {
-          for (const a of row.aggregation || []) agg[a.name] = a.value;
+          const a = this.aggregates(row);
+          totals.waiting += a.waiting;
+          if (a.oldest && (!totals.oldest || a.oldest < totals.oldest)) totals.oldest = a.oldest;
         }
-        return { name, waiting: Number(agg.waiting) || 0, oldest: Number(agg.oldest) || 0 };
+        return { name, ...totals };
       }));
     }
 
@@ -265,14 +291,17 @@
       const notice = this.error
         ? `<div class="notice warn">${esc(this.error)} Showing the last known data.</div>` : '';
 
-      const queues = this.queueStats.length ? `<div class="queues">${this.queueStats.map((q) => `
+      const queueCards = this.queueStats.length
+        ? this.queueStats.map((q) => `
         <div class="q ${q.waiting ? 'hot' : ''}">
           <b>${esc(q.name)}</b>
           <div class="row">
             <div><div class="n">${q.waiting}</div><div class="l">Waiting</div></div>
             <div><div class="n wait time" ${q.waiting ? `data-since="${q.oldest}"` : ''}>${q.waiting ? clock(now - q.oldest) : '--:--'}</div><div class="l">Longest wait</div></div>
           </div>
-        </div>`).join('')}</div>` : '';
+        </div>`).join('')
+        : '<div class="q"><b>Queues</b><div class="row"><div><div class="n">0</div><div class="l">Contacts waiting</div></div></div></div>';
+      const queues = `<div class="queues">${queueCards}</div>`;
 
       this.root.innerHTML = `${notice}<div class="summary">${chips}</div><div class="board">${cols}</div>${queues}`;
     }
