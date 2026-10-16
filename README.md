@@ -13,7 +13,7 @@ A Webex Contact Center Agent Desktop widget that shows who is signed in, what th
 
 Each card has the agent's name and a live clock for time in the current state. Idle cards also show the **idle code** (Lunch, Meeting and so on) when WxCC provides it. The clock is correct as soon as the page loads, because it comes from WxCC's own last-activity time and not from when the page was opened.
 
-Under the board, a strip shows the queues the signed-in agent's **desktop profile** allows them to see (Agent Statistics → Queue statistics in Control Hub: All, None or Specific), with the number **Waiting**, the **Longest wait**, and today's **Offered** and **Abandoned** counts. Queues with contacts waiting come first. With "None", no strip is shown. If the profile can't be read, the strip says so and shows no queues.
+Under the board, a table lists the queues the signed-in agent's **desktop profile** allows them to see (Agent Statistics → Queue statistics in Control Hub: All, None or Specific). Each queue has its **Waiting** count, **Longest wait**, and today's **Offered**, **Handled** and **Abandoned** counts, with a total row. Queues with contacts waiting come first and are highlighted. With "None", no table is shown. If the profile can't be read, it says so and shows no queues.
 
 ## How it works
 
@@ -90,18 +90,18 @@ In **Control Hub → Contact Center → Desktop Layouts**, upload the layout and
 | `refresh-seconds` | No | How often data is fetched. Default `15` |
 | `stale-seconds` | No | How long before the board warns the data is old. Default `60` |
 | `lookback-hours` | No | How far back to search for active sessions and waiting contacts. Default `24` |
-| `debug` | No | Logs to the browser console which idle-code fields the Search API offered |
+| `debug` | No | Shows a panel at the bottom with which idle-code and outcome fields the Search API accepted, and today's contact outcomes |
 | `team-name` | No | Show only this team, by its exact name. If left out, it shows everyone the user is allowed to see. |
 | `queues` | No | Pin specific queues so they always show, even with nothing waiting, as `id:Name` pairs separated by commas, e.g. `"<queue-id>:Technical Support,<queue-id>:Billing"`. If left out, the queues allowed by the agent's desktop profile are shown. |
 
 ## Known limitations
 
-- **Offered and Abandoned count from midnight, local time.** They're tallied from contact records created today. Abandoned appears only if the Search API exposes a contact outcome field; otherwise only Offered is shown. Add the `debug` attribute to see in the console whether it was found.
+- **Offered, Handled and Abandoned count from midnight, local time.** They're tallied from contact records created today. Handled and Abandoned need a contact outcome field from the Search API. If the API doesn't accept one, those columns show N/A. Handled counts contacts that ended normally.
 - **No service level or requeued count yet.** Those need a service-level threshold and extra fields.
 - **Signed-out agents aren't shown.** The Search API only lists active sessions.
 - **Only the first page of agents is loaded.** A very large org may not show everyone.
 - **State names come straight from WxCC.** Anything the widget doesn't recognise is grouped under Idle.
-- **Idle codes depend on what the Search API offers.** The widget asks the API which idle-code fields exist the first time it loads. If the API offers none, Idle cards show no reason. Add the `debug` attribute to see in the browser console which fields were found.
+- **Idle codes depend on what the Search API accepts.** The widget tries the likely idle-code fields once and keeps the first one the API accepts. If none is accepted, Idle cards show no reason.
 - **No extension numbers yet.**
 
 ## License

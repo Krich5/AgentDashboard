@@ -56,6 +56,8 @@
 
   const AGENT_QUERY_HEAD = 'query agents($from:Long! $to:Long! $filter:AgentSessionFilters $extFilter:AgentSessionSpecificFilters $pagination:Pagination){agentSession(from:$from to:$to filter:$filter extFilter:$extFilter pagination:$pagination){agentSessions{';
 
+  const OUTCOME_FIELD = 'terminationType';
+
   const TYPE_REF = 'name kind ofType { name kind ofType { name kind ofType { name kind } } }';
 
   const QUEUE_QUERY = 'query queue($from:Long! $to:Long! $timeComparator:QueryTimeType $filter:TaskFilters $aggregations:[TaskV2Aggregation]){task(from:$from to:$to timeComparator:$timeComparator filter:$filter aggregations:$aggregations){tasks{aggregation{name value}}}}';
@@ -91,14 +93,18 @@
     .onCall    { border-left-color: var(--onCall); }    .chip.onCall i    { background: var(--onCall); }
     .wrapup    { border-left-color: var(--wrapup); }    .chip.wrapup i    { background: var(--wrapup); }
     .idle      { border-left-color: var(--idle); }      .chip.idle i      { background: var(--idle); }
-    .queues { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; display: grid; gap: 10px;
-              grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
-    .q { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
-    .q b { display: block; font-size: 13px; margin-bottom: 4px; }
-    .q .row { display: flex; gap: 18px; flex-wrap: wrap; }
-    .q .n { font-size: 22px; line-height: 1.1; font-variant-numeric: tabular-nums; }
-    .q .l { font-size: 11px; color: var(--muted); }
-    .q.hot .n.wait { color: var(--onCall); }
+    .queues { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+    .tablewrap { overflow-x: auto; }
+    .qtable { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .qtable th, .qtable td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    .qtable th:first-child, .qtable td:first-child { text-align: left; }
+    .qtable th { font-size: 11px; font-weight: 600; color: var(--muted); }
+    .qtable td { font-variant-numeric: tabular-nums; }
+    .qtable td.qn { font-weight: 600; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+    .qtable tr.hot td { color: var(--onCall); }
+    .qtable tfoot td { font-weight: 600; border-top: 2px solid var(--line); border-bottom: 0; }
+    .debug { margin-top: 12px; font-size: 11px; }
+    .debug pre { white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); padding: 8px; border-radius: 6px; }
     .notice { font-size: 12px; padding: 6px 8px; border-radius: 6px; margin-bottom: 10px; }
     .warn { background: #fdf3e0; color: #7a4a06; }
     .bad { background: #fbe7e7; color: #8a1c1c; }
@@ -119,6 +125,7 @@
       this.root = this.shadowRoot.querySelector('.wrap');
       this.agents = [];
       this.queueStats = [];
+      this.debug = {};
       this.lastGood = 0;
       this.error = '';
     }
@@ -162,6 +169,12 @@
       return explicit || `https://api.wxcc-${this.dataCenter}.cisco.com`;
     }
 
+    fatal(message) {
+      const err = new Error(message);
+      err.fatal = true;
+      return err;
+    }
+
     async search(query, variables) {
       let res;
       try {
@@ -174,10 +187,10 @@
           body: JSON.stringify({ query, variables }),
         });
       } catch (err) {
-        throw new Error(`Could not reach ${this.base} (data-center "${this.getAttribute('data-center') || ''}").`);
+        throw this.fatal(`Could not reach ${this.base} (data-center "${this.getAttribute('data-center') || ''}").`);
       }
       if (res.status === 401 || res.status === 403) {
-        throw new Error('Your session does not allow this view, or it has expired. Sign in again.');
+        throw this.fatal('Your session does not allow this view, or it has expired. Sign in again.');
       }
       if (!res.ok) throw new Error(`The WxCC Search API answered ${res.status}.`);
       const body = await res.json();
@@ -196,9 +209,7 @@
       return (data.__type && data.__type.fields) || [];
     }
 
-    async discoverIdleFields() {
-      if (this.idleFields !== undefined) return this.idleFields;
-      this.idleFields = null;
+    async introspectIdleNames() {
       try {
         const root = await this.search(`{ __schema { queryType { fields { name type { ${TYPE_REF} } } } } }`, {});
         const entry = root.__schema.queryType.fields.find((f) => f.name === 'agentSession');
@@ -212,18 +223,58 @@
           .map((f) => f.name)
           .filter((n) => /idle/i.test(n));
         const found = { session: pick(sessionFields), channel: pick(channelFields) };
-        if (found.session.length || found.channel.length) this.idleFields = found;
-        if (this.hasAttribute('debug')) console.info('[agent-dashboard] idle fields', found);
+        this.debug.introspection = found;
+        return found;
       } catch (err) {
-        if (this.hasAttribute('debug')) console.info('[agent-dashboard] schema discovery failed', err);
+        if (err.fatal) throw err;
+        this.debug.introspection = `not available (${err.message})`;
+        return null;
       }
-      return this.idleFields;
     }
 
-    agentQuery(extra) {
-      const top = ['agentId', 'agentName', 'teamName', 'startTime', ...(extra ? extra.session : [])].join(' ');
-      const channel = ['currentState', 'lastActivityTime', ...(extra ? extra.channel : [])].join(' ');
-      return `${AGENT_QUERY_HEAD}${top} channelInfo{${channel}}}}}`;
+    idleCandidates(found) {
+      const names = ['idleCodeName', 'idleCode', 'idleCode{name}', 'idleCode{id name}', 'idleCodeId'];
+      const list = [];
+      if (found) {
+        found.channel.forEach((sel) => list.push({ level: 'channel', sel }));
+        found.session.forEach((sel) => list.push({ level: 'session', sel }));
+      }
+      ['channel', 'session'].forEach((level) => names.forEach((sel) => list.push({ level, sel })));
+      const seen = new Set();
+      return list.filter((c) => {
+        const key = `${c.level}.${c.sel}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+
+    async resolveIdleField(variables) {
+      if (this.idleSel !== undefined) return this.idleSel;
+      this.idleSel = null;
+      const found = await this.introspectIdleNames();
+      const tried = [];
+      for (const cand of this.idleCandidates(found)) {
+        try {
+          await this.search(this.agentQuery(cand), variables);
+          this.idleSel = cand;
+          tried.push(`${cand.level}.${cand.sel}: accepted`);
+          break;
+        } catch (err) {
+          if (err.fatal) throw err;
+          tried.push(`${cand.level}.${cand.sel}: rejected`);
+        }
+      }
+      this.debug.idleField = this.idleSel ? `${this.idleSel.level}.${this.idleSel.sel}` : 'none accepted';
+      this.debug.idleTried = tried;
+      return this.idleSel;
+    }
+
+    agentQuery(cand) {
+      const top = ['agentId', 'agentName', 'teamName', 'startTime'];
+      const channel = ['currentState', 'lastActivityTime'];
+      if (cand) (cand.level === 'channel' ? channel : top).push(cand.sel);
+      return `${AGENT_QUERY_HEAD}${top.join(' ')} channelInfo{${channel.join(' ')}}}}}`;
     }
 
     async loadIdleCodeNames() {
@@ -249,16 +300,14 @@
       return names;
     }
 
-    reasonFrom(session, channel, extra, codeNames) {
-      if (!extra) return '';
-      const values = [
-        ...extra.channel.map((n) => [n, channel[n]]),
-        ...extra.session.map((n) => [n, session[n]]),
-      ].filter(([, v]) => v);
-      const named = values.find(([n]) => /name/i.test(n));
-      if (named) return String(named[1]);
-      const id = values.length ? String(values[0][1]) : '';
-      return codeNames[id] || '';
+    reasonFrom(session, channel, cand, codeNames) {
+      if (!cand) return '';
+      const key = cand.sel.replace(/\{.*$/, '');
+      const raw = (cand.level === 'channel' ? channel : session)[key];
+      if (!raw) return '';
+      if (typeof raw === 'object') return String(raw.name || codeNames[raw.id] || '');
+      const text = String(raw);
+      return codeNames[text] || (/^[0-9a-f-]{32,36}$/i.test(text) ? '' : text);
     }
 
     async loadAgents() {
@@ -268,17 +317,9 @@
         filter: { and: [{ isActive: { equals: true } }, { channelInfo: { channelType: { equals: this.channel } } }] },
         extFilter: {}, pagination: {},
       };
-      let extra = await this.discoverIdleFields();
-      let data;
-      try {
-        data = await this.search(this.agentQuery(extra), variables);
-      } catch (err) {
-        if (!extra) throw err;
-        this.idleFields = null;
-        extra = null;
-        data = await this.search(this.agentQuery(null), variables);
-      }
-      const codeNames = extra ? await this.loadIdleCodeNames() : {};
+      const cand = await this.resolveIdleField(variables);
+      const data = await this.search(this.agentQuery(cand), variables);
+      const codeNames = cand ? await this.loadIdleCodeNames() : {};
       const team = (this.getAttribute('team-name') || '').trim().toLowerCase();
       return (data.agentSession.agentSessions || [])
         .map((s) => {
@@ -287,7 +328,7 @@
           return {
             id: s.agentId, name: s.agentName || 'Unknown', team: s.teamName || '',
             state: ch.currentState || '', group,
-            reason: group === 'idle' ? this.reasonFrom(s, ch, extra, codeNames) : '',
+            reason: group === 'idle' ? this.reasonFrom(s, ch, cand, codeNames) : '',
             since: Number(ch.lastActivityTime) || Number(s.startTime) || now,
           };
         })
@@ -335,49 +376,50 @@
       return access;
     }
 
-    async discoverTaskFields() {
-      if (this.taskFields !== undefined) return this.taskFields;
-      this.taskFields = null;
-      try {
-        const root = await this.search(`{ __schema { queryType { fields { name type { ${TYPE_REF} } } } } }`, {});
-        const entry = root.__schema.queryType.fields.find((f) => f.name === 'task');
-        const wrapperFields = await this.fieldsOf(this.unwrap(entry.type).name);
-        const tasks = wrapperFields.find((f) => f.name === 'tasks');
-        const fields = await this.fieldsOf(this.unwrap(tasks.type).name);
-        const scalar = (f) => ['SCALAR', 'ENUM'].includes(this.unwrap(f.type).kind);
-        const outcome = fields.find((f) => f.name === 'terminationType' && scalar(f));
-        this.taskFields = { outcome: outcome ? outcome.name : '' };
-        if (this.hasAttribute('debug')) console.info('[agent-dashboard] task outcome field', this.taskFields);
-      } catch (err) {
-        if (this.hasAttribute('debug')) console.info('[agent-dashboard] task schema discovery failed', err);
-      }
-      return this.taskFields;
-    }
-
     async loadQueueStats() {
-      try {
-        const found = await this.discoverTaskFields();
-        const outcome = found ? found.outcome : '';
-        const since = new Date();
-        since.setHours(0, 0, 0, 0);
-        const data = await this.search(`${STATS_QUERY_HEAD}${outcome ? ` ${outcome}` : ''} aggregation{name value}}}}`, {
-          from: `${since.getTime()}`, to: `${Date.now()}`, timeComparator: 'createdTime',
-          filter: {}, aggregations: [{ field: 'id', type: 'count', name: 'total' }],
-        });
-        const stats = new Map();
-        for (const row of data.task.tasks || []) {
-          const name = (row.lastQueue && row.lastQueue.name) || '';
-          if (!name) continue;
-          const count = Number((row.aggregation || []).find((a) => a.name === 'total')?.value) || 0;
-          const entry = stats.get(name) || { offered: 0, abandoned: 0, hasOutcome: Boolean(outcome) };
-          entry.offered += count;
-          if (outcome && /abandon/i.test(String(row[outcome] || ''))) entry.abandoned += count;
-          stats.set(name, entry);
+      const now = Date.now();
+      if (this.statsRetryAt && now < this.statsRetryAt) return null;
+      const since = new Date();
+      since.setHours(0, 0, 0, 0);
+      const variables = {
+        from: `${since.getTime()}`, to: `${now}`, timeComparator: 'createdTime',
+        filter: {}, aggregations: [{ field: 'id', type: 'count', name: 'total' }],
+      };
+      const attempts = this.statsOutcome === undefined ? [OUTCOME_FIELD, ''] : [this.statsOutcome];
+      let data = null;
+      let outcome = '';
+      for (const field of attempts) {
+        try {
+          data = await this.search(`${STATS_QUERY_HEAD}${field ? ` ${field}` : ''} aggregation{name value}}}}`, variables);
+          outcome = field;
+          this.statsOutcome = field;
+          break;
+        } catch (err) {
+          if (err.fatal) throw err;
         }
-        return { stats, outcome: Boolean(outcome) };
-      } catch (err) {
+      }
+      if (!data) {
+        this.statsRetryAt = now + 5 * 60 * 1000;
+        this.debug.stats = 'rejected by the API';
         return null;
       }
+      const stats = new Map();
+      const outcomes = {};
+      for (const row of data.task.tasks || []) {
+        const name = (row.lastQueue && row.lastQueue.name) || '';
+        if (!name) continue;
+        const count = Number((row.aggregation || []).find((a) => a.name === 'total')?.value) || 0;
+        const kind = outcome ? String(row[outcome] || '') : '';
+        const entry = stats.get(name) || { offered: 0, handled: 0, abandoned: 0 };
+        entry.offered += count;
+        if (/abandon/i.test(kind)) entry.abandoned += count;
+        else if (/normal/i.test(kind)) entry.handled += count;
+        stats.set(name, entry);
+        if (outcome) outcomes[kind || '(blank)'] = (outcomes[kind || '(blank)'] || 0) + count;
+      }
+      this.debug.stats = outcome ? `outcome field "${outcome}"` : 'counts only (no outcome field accepted)';
+      this.debug.outcomesToday = outcomes;
+      return { stats, outcome: Boolean(outcome) };
     }
 
     async loadQueueCatalog() {
@@ -440,7 +482,7 @@
         const names = allowed.map((q) => q.name);
         const result = await this.loadQueueStats();
         const statsFor = (name) => (result
-          ? result.stats.get(name) || { offered: 0, abandoned: 0, hasOutcome: result.outcome }
+          ? { ...(result.stats.get(name) || { offered: 0, handled: 0, abandoned: 0 }), hasOutcome: result.outcome }
           : null);
         return names
           .map((name) => ({ name, ...(byName.get(name) || { waiting: 0, oldest: 0 }), stats: statsFor(name) }))
@@ -511,23 +553,43 @@
       const notice = this.error
         ? `<div class="notice warn">${esc(this.error)} Showing the last known data.</div>` : '';
 
-      const queueCards = this.queueStats.length
-        ? this.queueStats.map((q) => `
-        <div class="q ${q.waiting ? 'hot' : ''}">
-          <b>${esc(q.name)}</b>
-          <div class="row">
-            <div><div class="n">${q.waiting}</div><div class="l">Waiting</div></div>
-            <div><div class="n wait time" ${q.waiting ? `data-since="${q.oldest}"` : ''}>${q.waiting ? clock(now - q.oldest) : '--:--'}</div><div class="l">Longest wait</div></div>
-            ${q.stats ? `<div><div class="n">${q.stats.offered}</div><div class="l">Offered today</div></div>` : ''}
-            ${q.stats && q.stats.hasOutcome ? `<div><div class="n">${q.stats.abandoned}</div><div class="l">Abandoned</div></div>` : ''}
-          </div>
-        </div>`).join('')
-        : '<div class="q"><b>Queues</b><div class="row"><div><div class="n">0</div><div class="l">Contacts waiting</div></div></div></div>';
-      let queues = `<div class="queues">${queueCards}</div>`;
+      const cell = (value, ok) => (ok ? value : 'N/A');
+      const rows = this.queueStats.map((q) => {
+        const st = q.stats;
+        const outcome = Boolean(st && st.hasOutcome);
+        return `<tr class="${q.waiting ? 'hot' : ''}">
+          <td class="qn" title="${esc(q.name)}">${esc(q.name)}</td>
+          <td>${q.waiting}</td>
+          <td class="time" ${q.waiting ? `data-since="${q.oldest}"` : ''}>${q.waiting ? clock(now - q.oldest) : '--:--'}</td>
+          <td>${cell(st ? st.offered : 0, Boolean(st))}</td>
+          <td>${cell(st ? st.handled : 0, outcome)}</td>
+          <td>${cell(st ? st.abandoned : 0, outcome)}</td>
+        </tr>`;
+      }).join('');
+      const sum = (key) => this.queueStats.reduce((n, q) => n + (q.stats ? q.stats[key] : 0), 0);
+      const known = this.queueStats.length > 0 && this.queueStats.every((q) => q.stats);
+      const outcomeKnown = known && this.queueStats.every((q) => q.stats.hasOutcome);
+      const oldest = this.queueStats.filter((q) => q.waiting).reduce((m, q) => (m && m < q.oldest ? m : q.oldest), 0);
+      const totals = this.queueStats.length > 1 ? `<tfoot><tr>
+          <td class="qn">Total</td>
+          <td>${this.queueStats.reduce((n, q) => n + q.waiting, 0)}</td>
+          <td class="time" ${oldest ? `data-since="${oldest}"` : ''}>${oldest ? clock(now - oldest) : '--:--'}</td>
+          <td>${cell(sum('offered'), known)}</td>
+          <td>${cell(sum('handled'), outcomeKnown)}</td>
+          <td>${cell(sum('abandoned'), outcomeKnown)}</td>
+        </tr></tfoot>` : '';
+      const table = this.queueStats.length
+        ? `<div class="tablewrap"><table class="qtable">
+            <thead><tr><th>Queue</th><th>Waiting</th><th>Longest wait</th><th>Offered</th><th>Handled</th><th>Abandoned</th></tr></thead>
+            <tbody>${rows}</tbody>${totals}</table></div>`
+        : '<div class="none">N/A</div>';
+      let queues = `<div class="queues">${table}</div>`;
       if (this.queuesHidden) queues = '';
       else if (this.queuesUnknown) queues = '<div class="queues"><div class="none">Queue access could not be determined. Check the agent-profile-id setting.</div></div>';
+      const debug = this.hasAttribute('debug')
+        ? `<details class="debug" open><summary>Debug</summary><pre>${esc(JSON.stringify(this.debug, null, 2))}</pre></details>` : '';
 
-      this.root.innerHTML = `${notice}<div class="summary">${chips}</div><div class="board">${cols}</div>${queues}`;
+      this.root.innerHTML = `${notice}<div class="summary">${chips}</div><div class="board">${cols}</div>${queues}${debug}`;
     }
 
     tick() {
