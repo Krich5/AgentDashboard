@@ -9,6 +9,8 @@
     lookbackHours: 24,
   };
 
+  const QUEUE_LIST_TTL_MS = 15 * 60 * 1000;
+
   const COLUMNS = [
     ['available', 'Available'],
     ['onCall', 'On a call'],
@@ -211,6 +213,34 @@
       ];
     }
 
+    async loadQueueCatalog() {
+      const now = Date.now();
+      if (this.queueCatalog && now - this.queueCatalogAt < QUEUE_LIST_TTL_MS) return this.queueCatalog;
+      try {
+        const queues = [];
+        let page = 0;
+        let totalPages = 1;
+        while (page < totalPages && page < 20) {
+          const res = await fetch(
+            `${this.base}/organization/${this.orgId}/v2/contact-service-queue?page=${page}&pageSize=100`,
+            { headers: { Authorization: `Bearer ${this.token}`, Accept: 'application/json' } },
+          );
+          if (!res.ok) throw new Error(String(res.status));
+          const body = await res.json();
+          const rows = Array.isArray(body.data) ? body.data : (Array.isArray(body) ? body : []);
+          for (const q of rows) if (q && q.name && q.active !== false) queues.push({ id: q.id, name: q.name });
+          totalPages = (body.meta && body.meta.totalPages) || 1;
+          page += 1;
+        }
+        this.queueCatalog = queues;
+        this.queueCatalogAt = now;
+      } catch (err) {
+        this.queueCatalog = null;
+        this.queueCatalogAt = now - QUEUE_LIST_TTL_MS + 60000;
+      }
+      return this.queueCatalog;
+    }
+
     async loadQueues() {
       const pinned = parseQueues(this.getAttribute('queues'));
       const now = Date.now();
@@ -219,14 +249,23 @@
       const waiting = [{ isActive: { equals: true } }, { status: { equals: 'parked' } }];
 
       if (!pinned.length) {
-        const data = await this.search(ALL_QUEUES_QUERY, {
-          from, to, timeComparator: 'createdTime',
-          filter: { and: waiting }, aggregations: this.waitingAggregations(),
-        });
-        return (data.task.tasks || [])
-          .map((row) => ({ name: (row.lastQueue && row.lastQueue.name) || 'Queue', ...this.aggregates(row) }))
-          .filter((q) => q.waiting > 0)
-          .sort((a, b) => a.oldest - b.oldest);
+        const [catalog, data] = await Promise.all([
+          this.loadQueueCatalog(),
+          this.search(ALL_QUEUES_QUERY, {
+            from, to, timeComparator: 'createdTime',
+            filter: { and: waiting }, aggregations: this.waitingAggregations(),
+          }),
+        ]);
+        const byName = new Map();
+        for (const row of data.task.tasks || []) {
+          const name = (row.lastQueue && row.lastQueue.name) || 'Queue';
+          byName.set(name, this.aggregates(row));
+        }
+        const names = catalog ? catalog.map((q) => q.name) : [...byName.keys()];
+        for (const name of byName.keys()) if (!names.includes(name)) names.push(name);
+        return names
+          .map((name) => ({ name, ...(byName.get(name) || { waiting: 0, oldest: 0 }) }))
+          .sort((a, b) => (b.waiting - a.waiting) || a.name.localeCompare(b.name));
       }
 
       return Promise.all(pinned.map(async ({ id, name }) => {
