@@ -5,6 +5,7 @@
     dataCenter: 'us1',
     channel: 'telephony',
     refreshSeconds: 15,
+    visibleRows: 5,
     staleSeconds: 60,
     lookbackHours: 24,
   };
@@ -35,6 +36,11 @@
     const s = String(t % 60).padStart(2, '0');
     return h ? `${h}:${m}:${s}` : `${m}:${s}`;
   }
+
+  const prettyState = (state) => {
+    const text = String(state || '').replace(/[-_]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').trim().toLowerCase();
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  };
 
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
@@ -82,12 +88,14 @@
     @media (max-width: 760px) { .board { grid-template-columns: repeat(2, minmax(140px, 1fr)); } }
     .col h3 { font-size: 13px; margin: 0 0 6px; }
     .col h3 span { font-weight: 400; color: var(--muted); margin-left: 4px; }
-    .list { display: flex; flex-direction: column; gap: 6px; max-height: 460px; overflow-y: auto; }
-    .card { background: var(--bg); border: 1px solid var(--line); border-left-width: 4px; border-radius: 6px; padding: 6px 8px; }
-    .name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 2px; }
-    .time { font-variant-numeric: tabular-nums; }
-    .reason { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px; }
+    :host { --row: 28px; --rows: 5; --gap: 4px; }
+    .list { display: flex; flex-direction: column; gap: var(--gap); overflow-y: auto;
+            max-height: calc(var(--rows) * var(--row) + (var(--rows) - 1) * var(--gap) + 2px); }
+    .card { display: flex; align-items: center; gap: 8px; flex: none; box-sizing: border-box; height: var(--row);
+            background: var(--bg); border: 1px solid var(--line); border-left-width: 3px; border-radius: 5px; padding: 0 8px; }
+    .name { flex: 1; min-width: 0; font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .detail { max-width: 45%; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .time { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .none { font-size: 12px; color: var(--muted); padding: 4px 2px; }
     .available { border-left-color: var(--available); } .chip.available i { background: var(--available); }
     .onCall    { border-left-color: var(--onCall); }    .chip.onCall i    { background: var(--onCall); }
@@ -115,7 +123,7 @@
   class AgentDashboard extends HTMLElement {
     static get observedAttributes() {
       return ['token', 'org-id', 'data-center', 'base-url', 'channel', 'refresh-seconds',
-              'stale-seconds', 'lookback-hours', 'darkmode', 'team-name', 'queues', 'agent-profile-id', 'debug'];
+              'stale-seconds', 'lookback-hours', 'darkmode', 'team-name', 'queues', 'agent-profile-id', 'rows', 'debug'];
     }
 
     constructor() {
@@ -521,6 +529,12 @@
       this.render();
     }
 
+    detailFor(agent, column) {
+      if (column === 'onCall') return prettyState(agent.state);
+      if (column === 'idle') return agent.reason;
+      return '';
+    }
+
     render() {
       const now = Date.now();
       if (this.error && !this.lastGood) {
@@ -545,8 +559,9 @@
           <h3>${label}<span>${byGroup[k].length}</span></h3>
           <div class="list">${byGroup[k].length ? byGroup[k].map((a) => `
             <div class="card ${k}">
-              <div class="name" title="${esc(a.name)}">${esc(a.name)}</div>
-              <div class="meta"><span class="reason">${esc(a.reason)}</span><span class="time" data-since="${a.since}">${clock(now - a.since)}</span></div>
+              <span class="name" title="${esc(a.name)}">${esc(a.name)}</span>
+              ${this.detailFor(a, k) ? `<span class="detail">${esc(this.detailFor(a, k))}</span>` : ''}
+              <span class="time" data-since="${a.since}">${clock(now - a.since)}</span>
             </div>`).join('') : '<div class="none">N/A</div>'}</div>
         </div>`).join('');
 
@@ -589,7 +604,10 @@
       const debug = this.hasAttribute('debug')
         ? `<details class="debug" open><summary>Debug</summary><pre>${esc(JSON.stringify(this.debug, null, 2))}</pre></details>` : '';
 
+      this.style.setProperty('--rows', String(Math.floor(positive(this.getAttribute('rows'), DEFAULTS.visibleRows))));
+      const scrolled = [...this.shadowRoot.querySelectorAll('.list')].map((el) => el.scrollTop);
       this.root.innerHTML = `${notice}<div class="summary">${chips}</div><div class="board">${cols}</div>${queues}${debug}`;
+      this.shadowRoot.querySelectorAll('.list').forEach((el, i) => { if (scrolled[i]) el.scrollTop = scrolled[i]; });
     }
 
     tick() {

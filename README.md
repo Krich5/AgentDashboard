@@ -11,7 +11,7 @@ A Webex Contact Center Agent Desktop widget that shows who is signed in, what th
 | **Wrap-up** | Finishing up after a call |
 | **Idle** | Signed in but not taking calls, with the idle code shown on the card |
 
-Each card has the agent's name and a live clock for time in the current state. Idle cards also show the **idle code** (Lunch, Meeting and so on) when WxCC provides it. The clock is correct as soon as the page loads, because it comes from WxCC's own last-activity time and not from when the page was opened.
+Each agent is one compact row. Each column shows five rows at a time and scrolls when there are more. Available and Wrap-up rows show the name and a live clock for time in that state. On a call rows add the call state (connected, hold, conference and so on) between the name and the clock. Idle rows add the idle code (Lunch, Meeting and so on) when WxCC provides it.
 
 Under the board, a table lists the queues the signed-in agent's **desktop profile** allows them to see (Agent Statistics → Queue statistics in Control Hub: All, None or Specific). Each queue has its **Waiting** count, **Longest wait**, and today's **Offered**, **Handled** and **Abandoned** counts, with a total row. Queues with contacts waiting come first and are highlighted. With "None", no table is shown. If the profile can't be read, it says so and shows no queues.
 
@@ -88,6 +88,7 @@ In **Control Hub → Contact Center → Desktop Layouts**, upload the layout and
 | `base-url` | No | Use this API address instead of the one built from `data-center` |
 | `channel` | No | The channel to list agents on. Default `telephony` |
 | `refresh-seconds` | No | How often data is fetched. Default `15` |
+| `rows` | No | How many agent rows each column shows before it scrolls. Default `5` |
 | `stale-seconds` | No | How long before the board warns the data is old. Default `60` |
 | `lookback-hours` | No | How far back to search for active sessions and waiting contacts. Default `24` |
 | `debug` | No | Shows a panel at the bottom with which idle-code and outcome fields the Search API accepted, and today's contact outcomes |
