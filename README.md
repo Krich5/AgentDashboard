@@ -13,7 +13,7 @@ A Webex Contact Center Agent Desktop widget that shows who is signed in, what th
 
 Each agent is one compact row. Each column shows five rows at a time and scrolls when there are more. Available and Wrap-up rows show the name and a live clock for time in that state. On a call rows add the call state (connected, hold, conference and so on) between the name and the clock. Idle rows add the idle code (Lunch, Meeting and so on) when WxCC provides it.
 
-Under the board, a table lists the queues the signed-in agent's **desktop profile** allows them to see (Agent Statistics → Queue statistics in Control Hub: All, None or Specific). Each queue has its **Waiting** count, **Longest wait**, and today's **Offered**, **Handled** and **Abandoned** counts, with a total row that stays visible while the queues scroll. Queues with contacts waiting come first and are highlighted. With "None", no table is shown. If the profile can't be read, it says so and shows no queues.
+Under the board, a table lists the queues the signed-in agent's **desktop profile** allows them to see (Agent Statistics → Queue statistics in Control Hub: All, None or Specific). Each queue has its **Waiting** count, **Longest wait**, and today's **Offered**, **Handled** and **Abandoned** counts, with a total row that stays visible while the queues scroll. Queues with contacts waiting come first. **Waiting** and **Longest wait** turn yellow and then red as they pass the thresholds (see the attributes below), and the other columns stay plain. The whole widget sizes itself to the window, sharing the height between the agent columns and the table, so the page doesn't scroll. With "None", no table is shown. If the profile can't be read, it says so and shows no queues.
 
 ## How it works
 
@@ -89,7 +89,10 @@ In **Control Hub → Contact Center → Desktop Layouts**, upload the layout and
 | `channel` | No | The channel to list agents on. Default `telephony` |
 | `refresh-seconds` | No | How often data is fetched. Default `15` |
 | `rows` | No | How many agent rows each column shows before it scrolls. Default `5` |
-| `queue-rows` | No | How many queue rows the table shows before it scrolls. The header and Total row stay in place. Default `6` |
+| `queue-rows` | No | The most queue rows the table shows before it scrolls. The header and Total row stay in place. Default `15` |
+| `waiting-warn` / `waiting-alert` | No | A queue's Waiting count turns yellow at `waiting-warn` and red at `waiting-alert`. Defaults `5` and `10` |
+| `wait-warn-seconds` / `wait-alert-seconds` | No | Longest wait turns yellow at `wait-warn-seconds` and red at `wait-alert-seconds`. Defaults `120` and `300` |
+| `fit` | No | By default the widget sizes itself to the browser window so the page never scrolls. Set `false` to turn that off |
 | `stale-seconds` | No | How long before the board warns the data is old. Default `60` |
 | `lookback-hours` | No | How far back to search for active sessions and waiting contacts. Default `24` |
 | `debug` | No | Shows a panel at the bottom with which idle-code and outcome fields the Search API accepted, and today's contact outcomes |

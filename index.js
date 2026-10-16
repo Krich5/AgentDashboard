@@ -6,7 +6,11 @@
     channel: 'telephony',
     refreshSeconds: 15,
     visibleRows: 5,
-    queueRows: 6,
+    queueRows: 15,
+    waitingWarn: 5,
+    waitingAlert: 10,
+    waitWarnSeconds: 120,
+    waitAlertSeconds: 300,
     staleSeconds: 60,
     lookbackHours: 24,
   };
@@ -77,20 +81,21 @@
     :host {
       --bg: #ffffff; --fg: #121212; --muted: #5d6874; --line: #d9dee3;
       --available: #1a9c33; --onCall: #d9342b; --wrapup: #7b4fc9; --idle: #d89a00;
-      display: block; font-family: 'CiscoSansTT Regular', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      display: block; overflow: hidden; font-family: 'CiscoSansTT Regular', 'Helvetica Neue', Helvetica, Arial, sans-serif;
       color: var(--fg);
     }
     :host([dark]) { --bg: #1f2327; --fg: #e8eaed; --muted: #a3acb5; --line: #353b41; }
-    .wrap { padding: 12px; }
-    .summary { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .wrap { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; padding: 12px; overflow: hidden; }
+    .summary { display: flex; flex: none; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
     .chip { font-size: 13px; font-weight: 600; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }
     .chip i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-    .board { display: grid; gap: 10px; grid-template-columns: repeat(4, minmax(150px, 1fr)); align-items: start; }
+    .board { display: grid; flex: 0 1 auto; min-height: 0; gap: 10px; grid-template-columns: repeat(4, minmax(150px, 1fr)); grid-template-rows: minmax(0, 1fr); }
+    .col { display: flex; flex-direction: column; min-height: 0; }
     @media (max-width: 760px) { .board { grid-template-columns: repeat(2, minmax(140px, 1fr)); } }
-    .col h3 { font-size: 13px; margin: 0 0 6px; }
+    .col h3 { flex: none; font-size: 13px; margin: 0 0 6px; }
     .col h3 span { font-weight: 400; color: var(--muted); margin-left: 4px; }
     :host { --row: 28px; --rows: 5; --gap: 4px; }
-    .list { display: flex; flex-direction: column; gap: var(--gap); overflow-y: auto;
+    .list { display: flex; flex-direction: column; gap: var(--gap); overflow-y: auto; min-height: 0;
             max-height: calc(var(--rows) * var(--row) + (var(--rows) - 1) * var(--gap) + 2px); }
     .card { display: flex; align-items: center; gap: 8px; flex: none; box-sizing: border-box; height: var(--row);
             background: var(--bg); border: 1px solid var(--line); border-left-width: 3px; border-radius: 5px; padding: 0 8px; }
@@ -102,9 +107,9 @@
     .onCall    { border-left-color: var(--onCall); }    .chip.onCall i    { background: var(--onCall); }
     .wrapup    { border-left-color: var(--wrapup); }    .chip.wrapup i    { background: var(--wrapup); }
     .idle      { border-left-color: var(--idle); }      .chip.idle i      { background: var(--idle); }
-    .queues { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+    .queues { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
     :host { --qrows: 6; --qrow: 34px; }
-    .tablewrap { overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+    .tablewrap { flex: 0 1 auto; min-height: calc(4 * var(--qrow)); overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
                  max-height: calc((var(--qrows) + 2) * var(--qrow)); }
     .qtable { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
     .qtable th, .qtable td { padding: 0 10px; height: var(--qrow); box-sizing: border-box; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
@@ -113,11 +118,13 @@
     .qtable td { font-variant-numeric: tabular-nums; }
     .qtable td.qn { font-weight: 600; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
     .qtable td.time { font-size: inherit; color: inherit; }
-    .qtable tr.hot td { color: var(--onCall); }
+    .pill { display: inline-block; min-width: 3.2em; padding: 2px 8px; border-radius: 999px; text-align: center; font-weight: 600; }
+    .pill.lv-warn { background: #f5c542; color: #3d2e00; }
+    .pill.lv-alert { background: #d9342b; color: #ffffff; }
     .qtable tfoot td { position: sticky; bottom: 0; z-index: 1; background: var(--bg); font-weight: 600; border-top: 2px solid var(--line); border-bottom: 0; }
-    .debug { margin-top: 12px; font-size: 11px; }
+    .debug { flex: none; margin-top: 12px; font-size: 11px; max-height: 160px; overflow: auto; }
     .debug pre { white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); padding: 8px; border-radius: 6px; }
-    .notice { font-size: 12px; padding: 6px 8px; border-radius: 6px; margin-bottom: 10px; }
+    .notice { flex: none; font-size: 12px; padding: 6px 8px; border-radius: 6px; margin-bottom: 10px; }
     .warn { background: #fdf3e0; color: #7a4a06; }
     .bad { background: #fbe7e7; color: #8a1c1c; }
     :host([dark]) .warn { background: #3a2f17; color: #eac27a; }
@@ -127,7 +134,8 @@
   class AgentDashboard extends HTMLElement {
     static get observedAttributes() {
       return ['token', 'org-id', 'data-center', 'base-url', 'channel', 'refresh-seconds',
-              'stale-seconds', 'lookback-hours', 'darkmode', 'team-name', 'queues', 'agent-profile-id', 'rows', 'queue-rows', 'debug'];
+              'stale-seconds', 'lookback-hours', 'darkmode', 'team-name', 'queues', 'agent-profile-id', 'rows', 'queue-rows', 'waiting-warn', 'waiting-alert',
+              'wait-warn-seconds', 'wait-alert-seconds', 'fit', 'debug'];
     }
 
     constructor() {
@@ -143,12 +151,16 @@
     }
 
     connectedCallback() {
+      this.onResize = () => this.fit();
+      window.addEventListener('resize', this.onResize);
+      this.fit();
       this.refresh();
       this.startPolling();
       this.ticker = setInterval(() => this.tick(), 1000);
     }
 
     disconnectedCallback() {
+      window.removeEventListener('resize', this.onResize);
       clearInterval(this.poll);
       clearInterval(this.ticker);
     }
@@ -158,6 +170,15 @@
       if (!this.isConnected) return;
       if (name === 'refresh-seconds') this.startPolling();
       else if (name !== 'darkmode') this.refresh();
+    }
+
+    fit() {
+      if (String(this.getAttribute('fit')).toLowerCase() === 'false') {
+        this.style.height = '';
+        return;
+      }
+      const top = this.getBoundingClientRect().top;
+      this.style.height = `${Math.max(260, Math.floor(window.innerHeight - top - 8))}px`;
     }
 
     startPolling() {
@@ -170,6 +191,22 @@
     get channel() { return this.getAttribute('channel') || DEFAULTS.channel; }
     get refreshMs() { return positive(this.getAttribute('refresh-seconds'), DEFAULTS.refreshSeconds) * 1000; }
     get staleMs() { return positive(this.getAttribute('stale-seconds'), DEFAULTS.staleSeconds) * 1000; }
+    get waitingLevels() {
+      return {
+        warn: positive(this.getAttribute('waiting-warn'), DEFAULTS.waitingWarn),
+        alert: positive(this.getAttribute('waiting-alert'), DEFAULTS.waitingAlert),
+      };
+    }
+    get waitLevels() {
+      return {
+        warn: positive(this.getAttribute('wait-warn-seconds'), DEFAULTS.waitWarnSeconds),
+        alert: positive(this.getAttribute('wait-alert-seconds'), DEFAULTS.waitAlertSeconds),
+      };
+    }
+    levelOf(value, levels) {
+      if (value >= levels.alert) return 'lv-alert';
+      return value >= levels.warn ? 'lv-warn' : '';
+    }
     get lookbackMs() { return positive(this.getAttribute('lookback-hours'), DEFAULTS.lookbackHours) * 3600000; }
     get dataCenter() {
       const raw = String(this.getAttribute('data-center') || '').toLowerCase();
@@ -573,13 +610,16 @@
         ? `<div class="notice warn">${esc(this.error)} Showing the last known data.</div>` : '';
 
       const cell = (value, ok) => (ok ? value : 'N/A');
+      const waitCell = (since) => (since
+        ? `<span class="pill time ${this.levelOf((now - since) / 1000, this.waitLevels)}" data-since="${since}" data-kind="wait">${clock(now - since)}</span>`
+        : '<span class="pill">--:--</span>');
       const rows = this.queueStats.map((q) => {
         const st = q.stats;
         const outcome = Boolean(st && st.hasOutcome);
-        return `<tr class="${q.waiting ? 'hot' : ''}">
+        return `<tr>
           <td class="qn" title="${esc(q.name)}">${esc(q.name)}</td>
-          <td>${q.waiting}</td>
-          <td class="time" ${q.waiting ? `data-since="${q.oldest}"` : ''}>${q.waiting ? clock(now - q.oldest) : '--:--'}</td>
+          <td><span class="pill ${this.levelOf(q.waiting, this.waitingLevels)}">${q.waiting}</span></td>
+          <td>${waitCell(q.waiting ? q.oldest : 0)}</td>
           <td>${cell(st ? st.offered : 0, Boolean(st))}</td>
           <td>${cell(st ? st.handled : 0, outcome)}</td>
           <td>${cell(st ? st.abandoned : 0, outcome)}</td>
@@ -592,7 +632,7 @@
       const totals = this.queueStats.length > 1 ? `<tfoot><tr>
           <td class="qn">Total</td>
           <td>${this.queueStats.reduce((n, q) => n + q.waiting, 0)}</td>
-          <td class="time" ${oldest ? `data-since="${oldest}"` : ''}>${oldest ? clock(now - oldest) : '--:--'}</td>
+          <td>${waitCell(oldest)}</td>
           <td>${cell(sum('offered'), known)}</td>
           <td>${cell(sum('handled'), outcomeKnown)}</td>
           <td>${cell(sum('abandoned'), outcomeKnown)}</td>
@@ -612,13 +652,18 @@
       this.style.setProperty('--qrows', String(Math.floor(positive(this.getAttribute('queue-rows'), DEFAULTS.queueRows))));
       const scrolled = [...this.shadowRoot.querySelectorAll('.list, .tablewrap')].map((el) => el.scrollTop);
       this.root.innerHTML = `${notice}<div class="summary">${chips}</div><div class="board">${cols}</div>${queues}${debug}`;
+      this.fit();
       this.shadowRoot.querySelectorAll('.list, .tablewrap').forEach((el, i) => { if (scrolled[i]) el.scrollTop = scrolled[i]; });
     }
 
     tick() {
       const now = Date.now();
       this.shadowRoot.querySelectorAll('[data-since]').forEach((el) => {
-        el.textContent = clock(now - Number(el.dataset.since));
+        const since = Number(el.dataset.since);
+        el.textContent = clock(now - since);
+        if (el.dataset.kind === 'wait') {
+          el.className = `pill time ${this.levelOf((now - since) / 1000, this.waitLevels)}`.trim();
+        }
       });
       if (this.lastGood && now - this.lastGood > this.staleMs && !this.error) {
         this.error = 'The data has not refreshed recently.';
