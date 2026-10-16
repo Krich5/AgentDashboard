@@ -1,31 +1,14 @@
-/**
- * AgentDashboard — a Webex Contact Center Agent Desktop widget.
- *
- * Shows who is signed in, what they are doing, and how long they have been doing it, as cards
- * grouped by state. Optionally shows live waiting numbers for chosen queues.
- *
- * It needs only what the Desktop already has: the user's access token, the org ID and the data
- * center. It reads the WxCC Search API as that user, so what appears is whatever their role is
- * allowed to see. There is no server behind it.
- *
- *   <agent-dashboard token="…" org-id="…" data-center="us1"></agent-dashboard>
- */
 (() => {
   if (customElements.get('agent-dashboard')) return;
 
-  const API_BASE = {
-    us1: 'https://api.wxcc-us1.cisco.com',
-    eu1: 'https://api.wxcc-eu1.cisco.com',
-    eu2: 'https://api.wxcc-eu2.cisco.com',
-    anz1: 'https://api.wxcc-anz1.cisco.com',
-    ca1: 'https://api.wxcc-ca1.cisco.com',
+  const DEFAULTS = {
+    dataCenter: 'us1',
+    channel: 'telephony',
+    refreshSeconds: 15,
+    staleSeconds: 60,
+    lookbackHours: 24,
   };
 
-  const REFRESH_MS = 15000;      // how often the data is fetched
-  const STALE_MS = 60000;        // how old the data can get before the board says so
-  const LOOKBACK_MS = 24 * 60 * 60 * 1000;
-
-  // Display order, and the label for each group of states.
   const COLUMNS = [
     ['available', 'Available'],
     ['onCall', 'On a call'],
@@ -33,17 +16,16 @@
     ['idle', 'Idle'],
   ];
 
-  /** Which column a WxCC channel state belongs in. Anything unrecognised is Idle. */
+  const BUSY_WORDS = ['connected', 'ringing', 'held', 'hold', 'consult', 'conferenc', 'engaged', 'talking', 'reserved'];
+
   function groupFor(state) {
     const s = String(state || '').toLowerCase();
     if (s.includes('available')) return 'available';
     if (s.includes('wrap')) return 'wrapup';
-    const busy = ['connected', 'ringing', 'held', 'hold', 'consult', 'conferenc', 'engaged', 'talking', 'reserved'];
-    if (busy.some((w) => s.includes(w))) return 'onCall';
+    if (BUSY_WORDS.some((w) => s.includes(w))) return 'onCall';
     return 'idle';
   }
 
-  /** 83 -> "01:23", 3725 -> "1:02:05" */
   function clock(ms) {
     const t = Math.max(0, Math.floor(ms / 1000));
     const h = Math.floor(t / 3600);
@@ -56,7 +38,11 @@
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
 
-  /** "id:Name,id:Name" -> [{id, name}] */
+  const positive = (value, fallback) => {
+    const n = Number(value);
+    return n > 0 ? n : fallback;
+  };
+
   function parseQueues(attr) {
     return String(attr || '').split(',').map((part) => {
       const i = part.indexOf(':');
@@ -113,7 +99,8 @@
 
   class AgentDashboard extends HTMLElement {
     static get observedAttributes() {
-      return ['token', 'org-id', 'data-center', 'darkmode', 'team-name', 'queues'];
+      return ['token', 'org-id', 'data-center', 'base-url', 'channel', 'refresh-seconds',
+              'stale-seconds', 'lookback-hours', 'darkmode', 'team-name', 'queues'];
     }
 
     constructor() {
@@ -129,8 +116,7 @@
 
     connectedCallback() {
       this.refresh();
-      this.poll = setInterval(() => this.refresh(), REFRESH_MS);
-      // The clocks tick on their own so time moves smoothly between fetches.
+      this.startPolling();
       this.ticker = setInterval(() => this.tick(), 1000);
     }
 
@@ -141,12 +127,28 @@
 
     attributeChangedCallback(name, _old, val) {
       if (name === 'darkmode') this.toggleAttribute('dark', String(val) === 'true');
-      else if (this.isConnected) this.refresh();
+      if (!this.isConnected) return;
+      if (name === 'refresh-seconds') this.startPolling();
+      else if (name !== 'darkmode') this.refresh();
+    }
+
+    startPolling() {
+      clearInterval(this.poll);
+      this.poll = setInterval(() => this.refresh(), this.refreshMs);
     }
 
     get token() { return this.getAttribute('token') || ''; }
     get orgId() { return this.getAttribute('org-id') || ''; }
-    get base() { return API_BASE[this.getAttribute('data-center')] || API_BASE.us1; }
+    get channel() { return this.getAttribute('channel') || DEFAULTS.channel; }
+    get refreshMs() { return positive(this.getAttribute('refresh-seconds'), DEFAULTS.refreshSeconds) * 1000; }
+    get staleMs() { return positive(this.getAttribute('stale-seconds'), DEFAULTS.staleSeconds) * 1000; }
+    get lookbackMs() { return positive(this.getAttribute('lookback-hours'), DEFAULTS.lookbackHours) * 3600000; }
+    get base() {
+      const explicit = (this.getAttribute('base-url') || '').trim().replace(/\/+$/, '');
+      if (explicit) return explicit;
+      const dc = this.getAttribute('data-center') || DEFAULTS.dataCenter;
+      return `https://api.wxcc-${dc}.cisco.com`;
+    }
 
     async search(query, variables) {
       const res = await fetch(`${this.base}/search`, {
@@ -169,8 +171,8 @@
     async loadAgents() {
       const now = Date.now();
       const data = await this.search(AGENT_QUERY, {
-        from: `${now - LOOKBACK_MS}`, to: `${now}`,
-        filter: { and: [{ isActive: { equals: true } }, { channelInfo: { channelType: { equals: 'telephony' } } }] },
+        from: `${now - this.lookbackMs}`, to: `${now}`,
+        filter: { and: [{ isActive: { equals: true } }, { channelInfo: { channelType: { equals: this.channel } } }] },
         extFilter: {}, pagination: {},
       });
       const team = (this.getAttribute('team-name') || '').trim().toLowerCase();
@@ -191,7 +193,7 @@
       const now = Date.now();
       return Promise.all(queues.map(async ({ id, name }) => {
         const data = await this.search(QUEUE_QUERY, {
-          from: `${now - LOOKBACK_MS}`, to: `${now}`, timeComparator: 'createdTime',
+          from: `${now - this.lookbackMs}`, to: `${now}`, timeComparator: 'createdTime',
           filter: { and: [
             { isActive: { equals: true } }, { status: { equals: 'parked' } },
             { lastQueue: { id: { equals: id } } },
@@ -210,7 +212,7 @@
     }
 
     async refresh() {
-      if (!this.token || !this.orgId) return;       // the Desktop fills these in a moment after load
+      if (!this.token || !this.orgId) return;
       try {
         const [agents, queueStats] = await Promise.all([this.loadAgents(), this.loadQueues()]);
         this.agents = agents;
@@ -237,7 +239,6 @@
       const byGroup = {};
       for (const [key] of COLUMNS) byGroup[key] = [];
       for (const a of this.agents) byGroup[a.group].push(a);
-      // Longest in their state first: in Available that is the person who has waited longest.
       for (const list of Object.values(byGroup)) list.sort((a, b) => a.since - b.since);
 
       const chips = COLUMNS.map(([k, label]) =>
@@ -253,8 +254,8 @@
             </div>`).join('') : '<div class="none">Nobody</div>'}</div>
         </div>`).join('');
 
-      let notice = '';
-      if (this.error) notice = `<div class="notice warn">${esc(this.error)} Showing the last known data.</div>`;
+      const notice = this.error
+        ? `<div class="notice warn">${esc(this.error)} Showing the last known data.</div>` : '';
 
       const queues = this.queueStats.length ? `<div class="queues">${this.queueStats.map((q) => `
         <div class="q ${q.waiting ? 'hot' : ''}">
@@ -268,14 +269,13 @@
       this.root.innerHTML = `${notice}<div class="summary">${chips}</div><div class="board">${cols}</div>${queues}`;
     }
 
-    /** Once a second: move the clocks, and flag data that has gone stale. */
     tick() {
       const now = Date.now();
       this.shadowRoot.querySelectorAll('[data-since]').forEach((el) => {
         el.textContent = clock(now - Number(el.dataset.since));
       });
-      if (this.lastGood && now - this.lastGood > STALE_MS && !this.error) {
-        this.error = 'Not updated for over a minute.';
+      if (this.lastGood && now - this.lastGood > this.staleMs && !this.error) {
+        this.error = 'The data has not refreshed recently.';
         this.render();
       }
     }

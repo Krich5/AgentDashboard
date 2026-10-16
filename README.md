@@ -20,8 +20,8 @@ If you list queues, a strip under the board shows **Waiting** and **Longest wait
 The widget reads the WxCC **Search API** as the signed-in user. It uses only the token, org and data center the Desktop already has. There's no server, no separate sign-in and no credentials to store.
 
 - **Who appears is whatever the user's role allows.** A supervisor sees their agents; an agent with a narrower role sees less. The widget has no access list of its own.
-- **Refreshes every 15 seconds**, with the clocks ticking every second in between.
-- **If a refresh fails**, it keeps showing the last good data and says so, and it warns when the data is over a minute old.
+- **Refreshes every 15 seconds** by default (`refresh-seconds`), with the clocks ticking every second in between.
+- **If a refresh fails**, it keeps showing the last good data and says so, and it warns when the data has gone stale (`stale-seconds`).
 - Only signed-in agents on the telephony channel are listed. Signed-out agents don't appear.
 
 ## Install
@@ -83,6 +83,11 @@ In **Control Hub → Contact Center → Desktop Layouts**, upload the layout and
 | `org-id` | Yes | WxCC organization ID, `$STORE.agent.orgId` |
 | `data-center` | Yes | `us1`, `eu1`, `eu2`, `anz1` or `ca1`, from `$STORE.app.datacenter` |
 | `darkmode` | No | `$STORE.app.darkMode`. Matches the Desktop's light or dark theme |
+| `base-url` | No | Use this API address instead of the one built from `data-center` |
+| `channel` | No | The channel to list agents on. Default `telephony` |
+| `refresh-seconds` | No | How often data is fetched. Default `15` |
+| `stale-seconds` | No | How long before the board warns the data is old. Default `60` |
+| `lookback-hours` | No | How far back to search for active sessions and waiting contacts. Default `24` |
 | `team-name` | No | Show only this team, by its exact name. If left out, it shows everyone the user is allowed to see. |
 | `queues` | No | Queues to show waiting numbers for, as `id:Name` pairs separated by commas, e.g. `"<queue-id>:Technical Support,<queue-id>:Billing"` |
 
