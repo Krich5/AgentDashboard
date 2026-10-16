@@ -6,6 +6,7 @@
     channel: 'telephony',
     refreshSeconds: 15,
     visibleRows: 5,
+    queueRows: 6,
     staleSeconds: 60,
     lookbackHours: 24,
   };
@@ -102,15 +103,18 @@
     .wrapup    { border-left-color: var(--wrapup); }    .chip.wrapup i    { background: var(--wrapup); }
     .idle      { border-left-color: var(--idle); }      .chip.idle i      { background: var(--idle); }
     .queues { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
-    .tablewrap { overflow-x: auto; }
-    .qtable { width: 100%; border-collapse: collapse; font-size: 13px; }
-    .qtable th, .qtable td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    :host { --qrows: 6; --qrow: 34px; }
+    .tablewrap { overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+                 max-height: calc((var(--qrows) + 2) * var(--qrow)); }
+    .qtable { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+    .qtable th, .qtable td { padding: 0 10px; height: var(--qrow); box-sizing: border-box; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
     .qtable th:first-child, .qtable td:first-child { text-align: left; }
-    .qtable th { font-size: 11px; font-weight: 600; color: var(--muted); }
+    .qtable th { position: sticky; top: 0; z-index: 1; background: var(--bg); font-size: 11px; font-weight: 600; color: var(--muted); }
     .qtable td { font-variant-numeric: tabular-nums; }
     .qtable td.qn { font-weight: 600; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+    .qtable td.time { font-size: inherit; color: inherit; }
     .qtable tr.hot td { color: var(--onCall); }
-    .qtable tfoot td { font-weight: 600; border-top: 2px solid var(--line); border-bottom: 0; }
+    .qtable tfoot td { position: sticky; bottom: 0; z-index: 1; background: var(--bg); font-weight: 600; border-top: 2px solid var(--line); border-bottom: 0; }
     .debug { margin-top: 12px; font-size: 11px; }
     .debug pre { white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); padding: 8px; border-radius: 6px; }
     .notice { font-size: 12px; padding: 6px 8px; border-radius: 6px; margin-bottom: 10px; }
@@ -123,7 +127,7 @@
   class AgentDashboard extends HTMLElement {
     static get observedAttributes() {
       return ['token', 'org-id', 'data-center', 'base-url', 'channel', 'refresh-seconds',
-              'stale-seconds', 'lookback-hours', 'darkmode', 'team-name', 'queues', 'agent-profile-id', 'rows', 'debug'];
+              'stale-seconds', 'lookback-hours', 'darkmode', 'team-name', 'queues', 'agent-profile-id', 'rows', 'queue-rows', 'debug'];
     }
 
     constructor() {
@@ -605,9 +609,10 @@
         ? `<details class="debug" open><summary>Debug</summary><pre>${esc(JSON.stringify(this.debug, null, 2))}</pre></details>` : '';
 
       this.style.setProperty('--rows', String(Math.floor(positive(this.getAttribute('rows'), DEFAULTS.visibleRows))));
-      const scrolled = [...this.shadowRoot.querySelectorAll('.list')].map((el) => el.scrollTop);
+      this.style.setProperty('--qrows', String(Math.floor(positive(this.getAttribute('queue-rows'), DEFAULTS.queueRows))));
+      const scrolled = [...this.shadowRoot.querySelectorAll('.list, .tablewrap')].map((el) => el.scrollTop);
       this.root.innerHTML = `${notice}<div class="summary">${chips}</div><div class="board">${cols}</div>${queues}${debug}`;
-      this.shadowRoot.querySelectorAll('.list').forEach((el, i) => { if (scrolled[i]) el.scrollTop = scrolled[i]; });
+      this.shadowRoot.querySelectorAll('.list, .tablewrap').forEach((el, i) => { if (scrolled[i]) el.scrollTop = scrolled[i]; });
     }
 
     tick() {
