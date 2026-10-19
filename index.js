@@ -84,9 +84,10 @@
   const STYLE = `
     :host {
       --bg: #ffffff; --fg: #121212; --muted: #5d6874; --line: #d9dee3;
+      --sep: var(--md-primary-seperator-color, var(--line)); --row-line: rgba(127, 127, 127, 0.28);
       --available: #1a9c33; --onCall: #d9342b; --wrapup: #7b4fc9; --idle: #d89a00;
       display: block; overflow: hidden; font-family: 'CiscoSansTT Regular', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-      color: var(--fg);
+      color: var(--md-primary-text-color, var(--fg));
     }
     :host([dark]) { --bg: #1f2327; --fg: #e8eaed; --muted: #a3acb5; --line: #353b41; }
     .wrap { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; padding: 12px; overflow: hidden; }
@@ -102,7 +103,7 @@
     .list { display: flex; flex-direction: column; gap: var(--gap); overflow-y: auto; min-height: 0;
             max-height: calc(var(--rows) * var(--row) + (var(--rows) - 1) * var(--gap) + 2px); }
     .card { display: flex; align-items: center; gap: 8px; flex: none; box-sizing: border-box; height: var(--row);
-            background: var(--bg); border: 1px solid var(--line); border-left-width: 3px; border-radius: 5px; padding: 0 8px; }
+            background: transparent; border: 1px solid var(--sep); border-left-width: 3px; border-radius: 5px; padding: 0 8px; }
     .name { flex: 1; min-width: 0; font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .detail { max-width: 45%; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .time { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -120,21 +121,24 @@
     .wrap.custom .board { flex: var(--split) 1 0px; }
     .wrap.custom .list { flex: 1 1 0px; max-height: none; }
     .wrap.custom .queues { flex: var(--rest) 1 0px; }
-    .wrap.custom .tablewrap { flex: 1 1 0px; max-height: none; min-height: calc(3 * var(--qrow)); }
+    .wrap.custom .qpanel { flex: 1 1 0px; }
+    .wrap.custom .tablewrap { flex: 1 1 0px; max-height: none; }
     :host { --qrows: 6; --qrow: 34px; }
-    .tablewrap { flex: 0 1 auto; min-height: calc(4 * var(--qrow)); overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
-                 max-height: calc((var(--qrows) + 2) * var(--qrow)); }
-    .qtable { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
-    .qtable th, .qtable td { padding: 0 10px; height: var(--qrow); box-sizing: border-box; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    .qpanel { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; overflow: hidden; background: transparent; border: 1px solid var(--sep); border-radius: 8px; }
+    .qhead, .qfoot { flex: none; padding-right: var(--sbw, 0px); }
+    .tablewrap { flex: 0 1 auto; min-height: calc(2 * var(--qrow)); overflow-y: auto; max-height: calc(var(--qrows) * var(--qrow)); }
+    .qtable { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+    .qtable th, .qtable td { padding: 0 10px; height: var(--qrow); box-sizing: border-box; text-align: right; white-space: nowrap; }
+    .qtable td { border-bottom: 1px solid var(--row-line); font-variant-numeric: tabular-nums; }
+    .qtable tbody tr:last-child td { border-bottom: 0; }
     .qtable th:first-child, .qtable td:first-child { text-align: left; }
-    .qtable th { position: sticky; top: 0; z-index: 1; background: var(--bg); font-size: 11px; font-weight: 600; color: var(--muted); }
-    .qtable td { font-variant-numeric: tabular-nums; }
-    .qtable td.qn { font-weight: 600; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+    .qhead th { border-bottom: 1px solid var(--sep); font-size: 11px; font-weight: 600; color: var(--muted); }
+    .qfoot td { border-bottom: 0; border-top: 1px solid var(--sep); font-weight: 600; }
+    .qtable td.qn { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
     .qtable td.time { font-size: inherit; color: inherit; }
     .pill { display: inline-block; min-width: 3.2em; padding: 2px 8px; border-radius: 999px; text-align: center; font-weight: 600; }
     .pill.lv-warn { background: #f5c542; color: #3d2e00; }
     .pill.lv-alert { background: #d9342b; color: #ffffff; }
-    .qtable tfoot td { position: sticky; bottom: 0; z-index: 1; background: var(--bg); font-weight: 600; border-top: 2px solid var(--line); border-bottom: 0; }
     .debug { flex: none; margin-top: 12px; font-size: 11px; max-height: 160px; overflow: auto; }
     .debug pre { white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); padding: 8px; border-radius: 6px; }
     .notice { flex: none; font-size: 12px; padding: 6px 8px; border-radius: 6px; margin-bottom: 10px; }
@@ -733,18 +737,20 @@
       const known = this.queueStats.length > 0 && this.queueStats.every((q) => q.stats);
       const outcomeKnown = known && this.queueStats.every((q) => q.stats.hasOutcome);
       const oldest = this.queueStats.filter((q) => q.waiting).reduce((m, q) => (m && m < q.oldest ? m : q.oldest), 0);
-      const totals = this.queueStats.length > 1 ? `<tfoot><tr>
+      const qcols = '<colgroup><col style="width: 32%"><col><col><col><col><col></colgroup>';
+      const totals = this.queueStats.length > 1 ? `<div class="qfoot"><table class="qtable">${qcols}<tbody><tr>
           <td class="qn">Total</td>
           <td><span class="pill">${this.queueStats.reduce((n, q) => n + q.waiting, 0)}</span></td>
           <td>${waitCell(oldest)}</td>
           <td>${cell(sum('offered'), known)}</td>
           <td>${cell(sum('handled'), outcomeKnown)}</td>
           <td>${cell(sum('abandoned'), outcomeKnown)}</td>
-        </tr></tfoot>` : '';
+        </tr></tbody></table></div>` : '';
       const table = this.queueStats.length
-        ? `<div class="tablewrap"><table class="qtable">
-            <thead><tr><th>Queue</th><th>Waiting</th><th>Longest wait</th><th>Offered</th><th>Handled</th><th>Abandoned</th></tr></thead>
-            <tbody>${rows}</tbody>${totals}</table></div>`
+        ? `<div class="qpanel">
+            <div class="qhead"><table class="qtable">${qcols}<thead><tr><th>Queue</th><th>Waiting</th><th>Longest wait</th><th>Offered</th><th>Handled</th><th>Abandoned</th></tr></thead></table></div>
+            <div class="tablewrap"><table class="qtable">${qcols}<tbody>${rows}</tbody></table></div>
+            ${totals}</div>`
         : '<div class="none">N/A</div>';
       let queues = `<div class="queues">${table}</div>`;
       if (this.queuesHidden) queues = '';
@@ -758,6 +764,9 @@
       const scrolled = [...this.shadowRoot.querySelectorAll('.list, .tablewrap')].map((el) => el.scrollTop);
       this.root.innerHTML = `${notice}<div class="summary">${chips}</div><div class="board">${cols}</div>${splitter}${queues}${debug}`;
       this.fit();
+      const body = this.shadowRoot.querySelector('.tablewrap');
+      const panel = this.shadowRoot.querySelector('.qpanel');
+      if (body && panel) panel.style.setProperty('--sbw', `${body.offsetWidth - body.clientWidth}px`);
       this.shadowRoot.querySelectorAll('.list, .tablewrap').forEach((el, i) => { if (scrolled[i]) el.scrollTop = scrolled[i]; });
     }
 
