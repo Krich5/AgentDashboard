@@ -2,6 +2,8 @@
 
 A Webex Contact Center Agent Desktop widget that shows who is signed in, what they're doing, and how long they've been doing it. Cards are grouped by state, so "is anyone free?" is answered at a glance. It can also show how many contacts are waiting in the queues you choose.
 
+![Agent Dashboard: agents grouped by state above, the queue table below](images/agent-dashboard.webp)
+
 ## What it shows
 
 | Column | Meaning |
